@@ -1,0 +1,101 @@
+# Configuration du module d'apprentissage
+
+reinforcement_learning:
+  enabled: true
+  algorithm: "ppo"  # ppo, a2c, dqn, sac
+  model_path: "models/rl_agent.pkl"
+  update_frequency: 100  # épisodes
+  training:
+    learning_rate: 0.0003
+    discount_factor: 0.99
+    episodes: 1000
+    batch_size: 64
+    replay_buffer_size: 10000
+    target_update_frequency: 10
+  exploration:
+    strategy: "epsilon_greedy"  # epsilon_greedy, boltzmann, ucb
+    initial_epsilon: 1.0
+    final_epsilon: 0.1
+    decay_steps: 10000
+  reward_shaping:
+    true_positive: 10.0
+    false_positive: -5.0
+    true_negative: 1.0
+    false_negative: -10.0
+    system_damage: -8.0
+
+federated_learning:
+  enabled: true
+  federation_server: "https://federated.biocybe.org"
+  aggregation_method: "fedavg"  # fedavg, fedprox, fedadam
+  min_clients: 5
+  rounds: 10
+  epochs_per_round: 5
+  client_fraction: 0.2
+  metrics_upload: true
+  anonymization:
+    differential_privacy: true
+    noise_multiplier: 0.1
+    clipping_threshold: 1.0
+  communication:
+    encryption: true
+    compression: true
+    bandwidth_limit: 1024  # KB/s
+
+threat_intelligence:
+  enabled: true
+  knowledge_base:
+    type: "neo4j"  # neo4j, elasticsearch, sqlite
+    url: "bolt://localhost:7687"
+    username: "neo4j"
+    password: "biocybe"
+  external_sources:
+    mitre_attack:
+      enabled: true
+      update_interval: 86400  # secondes (1 jour)
+    virustotal:
+      enabled: false
+      api_key: ""
+    threatfox:
+      enabled: true
+      api_key: ""
+  sharing:
+    anonymize_data: true
+    strip_pii: true
+    shared_features:
+      - "signatures"
+      - "behavior_patterns"
+      - "network_iocs"
+    exclude_features:
+      - "file_paths"
+      - "usernames"
+      - "hostnames"
+
+model_management:
+  model_versioning: true
+  rollback_enabled: true
+  versions_kept: 5
+  evaluation:
+    accuracy_threshold: 0.9
+    precision_threshold: 0.85
+    recall_threshold: 0.9
+    f1_threshold: 0.87
+  auto_update: true
+  update_approval: false  # Nécessite une approbation manuelle
+  testing:
+    test_data_path: "data/test_samples/"
+    split_ratio: 0.2
+    cross_validation: true
+    folds: 5
+
+danger_theory:
+  signal_weighting:
+    cpu_usage: 0.8
+    file_operations: 0.7
+    network_anomalies: 0.9
+    privilege_escalation: 1.0
+    process_injection: 0.8
+  context_window: 600  # secondes
+  baseline_adaptation: true
+  adaptation_rate: 0.05
+  maturational_learning: true  # Amélioration progressive de la spécificité
