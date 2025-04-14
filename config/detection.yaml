@@ -1,0 +1,103 @@
+# Configuration du module de détection
+
+signatures:
+  yara_rules_path: "rules/yara"
+  update_interval: 3600  # secondes
+  external_sources:
+    virustotal:
+      enabled: false
+      api_key: ""
+    alienvault:
+      enabled: false
+      api_key: ""
+
+static_analysis:
+  enabled: true
+  max_file_size: 100000000  # octets (100 MB)
+  scan_archives: true
+  max_archive_depth: 5
+  ml_models:
+    cnn:
+      enabled: true
+      model_path: "models/cnn_malware_detector.h5"
+      threshold: 0.7
+    transformer:
+      enabled: true
+      model_path: "models/transformer_api_sequence.h5"
+      threshold: 0.75
+  file_types:
+    pe: true          # Fichiers Windows
+    elf: true         # Fichiers Linux
+    script: true      # Scripts (Python, PowerShell, etc.)
+    document: true    # Documents Office, PDF, etc.
+    android: false    # APK Android
+    macos: false      # Applications macOS
+
+dynamic_analysis:
+  enabled: true
+  sandbox_timeout: 300  # secondes
+  sandbox_type: "cuckoo"  # cuckoo, firejail, docker
+  sandbox_path: "sandbox/"
+  monitor:
+    network: true
+    filesystem: true
+    registry: true
+    processes: true
+    memory: true
+  max_concurrent_analysis: 2
+  resource_limits:
+    cpu: 50  # pourcentage
+    memory: 1024  # MB
+    disk: 2048  # MB
+
+anomaly_detection:
+  enabled: true
+  models:
+    autoencoder:
+      enabled: true
+      model_path: "models/behavior_autoencoder.pkl"
+      threshold: 0.15
+    ocsvm:
+      enabled: true
+      model_path: "models/ocsvm_network.pkl"
+      threshold: -0.1
+  features:
+    api_calls: true
+    network_traffic: true
+    file_operations: true
+    registry_changes: true
+    memory_patterns: true
+  baseline_update_interval: 86400  # secondes (1 jour)
+
+heuristics:
+  enabled: true
+  rules:
+    - name: "high_entropy_sections"
+      threshold: 7.5
+      weight: 0.7
+    - name: "suspicious_imports"
+      threshold: 5
+      weight: 0.8
+    - name: "packer_detection"
+      threshold: 0.6
+      weight: 0.9
+    - name: "obfuscation_detection"
+      threshold: 0.7
+      weight: 0.8
+
+danger_theory:
+  enabled: true
+  signals:
+    cpu_usage:
+      threshold: 0.9
+      weight: 0.7
+    file_operations:
+      threshold: 100  # opérations par minute
+      weight: 0.8
+    network_anomalies:
+      threshold: 0.8
+      weight: 0.9
+    privilege_escalation:
+      threshold: 0.7
+      weight: 1.0
+  context_window: 300  # secondes
