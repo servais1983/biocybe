@@ -1,0 +1,94 @@
+# Configuration du module d'isolation
+
+quarantine:
+  path: "quarantine/"
+  secure_deletion: true
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+  max_storage: 5120  # MB
+  retention_period: 2592000  # secondes (30 jours)
+  auto_clean: true
+
+containers:
+  type: "docker"  # docker, lxc, firejail
+  base_image: "debian:bullseye-slim"
+  network_mode: "none"  # none, host, bridge
+  privileged: false
+  resource_limits:
+    cpu: 1  # cores
+    memory: 512  # MB
+    disk: 1024  # MB
+  mounts:
+    - source: "/tmp/biocybe/analysis"
+      target: "/analysis"
+      read_only: false
+  timeout: 300  # secondes
+  auto_remove: true
+
+network_isolation:
+  enabled: true
+  iptables: true
+  firewall_rules:
+    - action: "block"
+      direction: "outbound"
+      ports: "all"
+      protocol: "all"
+    - action: "allow"
+      direction: "outbound"
+      ports: "53"
+      protocol: "udp"
+  dns_sinkhole: true
+  proxy:
+    enabled: false
+    address: "127.0.0.1"
+    port: 8080
+
+process_isolation:
+  enabled: true
+  strategies:
+    suspend: true
+    namespace_isolation: true
+    cgroups_restriction: true
+  priority_adjustment: true
+  memory_protection: true
+  syscall_filtering: true
+  unshare_namespaces:
+    - "net"
+    - "pid"
+    - "ipc"
+    - "uts"
+
+filesystem_protection:
+  enabled: true
+  read_only_remount: true
+  protected_paths:
+    - "/etc"
+    - "/boot"
+    - "/bin"
+    - "/sbin"
+    - "/lib"
+    - "/sys"
+  override_permissions: true
+  immutable_flag: true
+
+windows_specific:
+  registry_isolation: true
+  app_container: true
+  job_objects: true
+  integrity_levels: "low"
+  restricted_tokens: true
+
+escalation:
+  tiered_response: true
+  light_isolation:
+    threshold: 0.5
+    duration: 300  # secondes
+  medium_isolation:
+    threshold: 0.7
+    duration: 1800  # secondes
+  strict_isolation:
+    threshold: 0.9
+    duration: 3600  # secondes
+  auto_escalation: true
+  escalation_delay: 60  # secondes
