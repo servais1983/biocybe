@@ -60,27 +60,7 @@ BioCybe est composé de quatre modules principaux, chacun inspiré d'un aspect d
 - Mise à jour en temps réel des signatures
 - Collaboration communautaire dans le partage des menaces
 
-## 🚀 Roadmap
 
-### Phase 1: Prototype initial (T2 2025)
-- Développement du détecteur de base avec TensorFlow
-- Implémentation des règles YARA basiques
-- Design de l'architecture système
-
-### Phase 2: Sandbox & Isolation (T3 2025)
-- Intégration avec environnement sandbox
-- Développement du module d'isolation
-- Tests avec échantillons de malwares connus
-
-### Phase 3: Module d'auto-réparation (T4 2025)
-- Système de rollback automatique
-- Intégration avec solutions de backup
-- Mécanismes de récupération de fichiers
-
-### Phase 4: RL & Apprentissage fédéré (T1 2026)
-- Implémentation de l'apprentissage par renforcement
-- Système de partage de connaissances anonymisé
-- Tests en environnement réel
 
 ## 🔧 Technologies
 
