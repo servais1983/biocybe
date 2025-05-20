@@ -1,0 +1,297 @@
+# Configuration BioCybe
+# ==================
+# Ce fichier configure le comportement du système immunitaire numérique BioCybe
+
+# Configuration du noyau
+core:
+  # Intervalle (en secondes) entre les sauvegardes d'état
+  state_save_interval: 300
+  
+  # Niveau de journalisation (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_level: "INFO"
+  
+  # Activer l'IA explicable (XAI)
+  xai_enabled: true
+  
+  # Activer le tableau de bord web
+  dashboard_enabled: true
+  dashboard_port: 8080
+  
+  # Stockage des métriques et événements
+  metrics:
+    retention_days: 30
+    database_path: "db/metrics"
+
+# Configuration des cellules
+cells:
+  # Chargement automatique des cellules au démarrage
+  autoload: true
+  
+  # Types de cellules activées
+  enabled_types:
+    - macrophage
+    - b_cell
+    - t_cell
+    - nk_cell
+    - memory_cell
+    - barrier_cell
+    - swarm_intelligence
+    - epigenetic
+  
+  # Configuration spécifique par type de cellule
+  macrophage:
+    instances:
+      - name: "macrophage_system"
+        config:
+          scan_interval: 300  # secondes
+          watch_directories:
+            - "/etc"
+            - "/tmp"
+            - "/var/log"
+            - "/home"
+          cpu_threshold: 80  # pourcentage
+          memory_threshold: 85  # pourcentage
+      
+      - name: "macrophage_network"
+        config:
+          scan_interval: 60  # secondes
+          monitor_network: true
+          suspicious_ports:
+            - 4444
+            - 1337
+            - 8080
+            - 31337
+            - 4545
+  
+  b_cell:
+    instances:
+      - name: "b_cell_main"
+        config:
+          db_path: "db/signatures"
+          cache_expiry_minutes: 30
+          update_interval_hours: 24
+      
+      - name: "b_cell_realtime"
+        config:
+          db_path: "db/signatures"
+          cache_expiry_minutes: 5
+          priority_directories:
+            - "/tmp"
+            - "/var/www"
+  
+  t_cell:
+    instances:
+      - name: "t_cell_behavior"
+        config:
+          scan_interval: 600  # secondes
+          anomaly_threshold: 0.75
+          learning_rate: 0.05
+          model_path: "models/behavior"
+          baseline_days: 7
+      
+      - name: "t_cell_network"
+        config:
+          scan_interval: 300  # secondes
+          anomaly_threshold: 0.8
+          connection_tracking: true
+          model_path: "models/network"
+  
+  nk_cell:
+    instances:
+      - name: "nk_cell_main"
+        config:
+          quarantine_path: "quarantine"
+          auto_terminate_critical: true
+          auto_terminate_high: false
+          terminate_suspicious_threshod: 0.9
+          recovery_templates_path: "templates/recovery"
+  
+  memory_cell:
+    instances:
+      - name: "memory_cell_main"
+        config:
+          db_path: "db/memory"
+          learning_enabled: true
+          share_signatures: true
+          signature_retention_days: 90
+          community_sharing:
+            enabled: false
+            endpoints:
+              - "https://biocybe.example.org/api/share"
+  
+  barrier_cell:
+    instances:
+      - name: "barrier_network"
+        config:
+          firewall_integration: true
+          adaptive_rules: true
+          rule_path: "rules/firewall"
+          ports_to_monitor:
+            - 22
+            - 80
+            - 443
+            - 3306
+            - 5432
+  
+  swarm_intelligence:
+    instances:
+      - name: "swarm_detection"
+        config:
+          swarm_size: 5
+          peer_discovery: true
+          peer_update_interval: 300
+          consensus_threshold: 0.6
+  
+  epigenetic:
+    instances:
+      - name: "epigenetic_adapter"
+        config:
+          context_detection: true
+          environments:
+            - name: "home"
+              indicators:
+                - "wifi_ssid: HomeNetwork"
+                - "ip_range: 192.168.1.0/24"
+              security_level: "medium"
+            
+            - name: "public"
+              indicators:
+                - "network_type: public"
+                - "unknown_wifi"
+              security_level: "high"
+            
+            - name: "work"
+              indicators:
+                - "wifi_ssid: WorkNetwork"
+                - "ip_range: 10.0.0.0/8"
+                - "vpn_active: true"
+              security_level: "medium"
+
+# Configuration des modules spéciaux
+modules:
+  xai:
+    enabled: true
+    explanation_level: "detailed"  # simple, standard, detailed
+    visualization_types:
+      - "heatmap"
+      - "decision_tree"
+      - "feature_importance"
+    explainers:
+      - "lime"
+      - "shap"
+    output_format: "html"
+  
+  api:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8089
+    auth_required: true
+    cors_enabled: false
+    rate_limiting:
+      enabled: true
+      max_requests: 100
+      per_minutes: 60
+  
+  collaboration:
+    enabled: false
+    discovery_protocol: "mdns"
+    encryption_enabled: true
+    trusted_peers:
+      - "192.168.1.5"
+      - "192.168.1.10"
+    trust_level: "signatures_only"  # signatures_only, alerts, full
+
+# Configuration de l'interface avec le système d'exploitation
+system:
+  os_integration:
+    linux:
+      use_apparmor: true
+      use_selinux: false
+      use_iptables: true
+    
+    windows:
+      use_windows_defender: true
+      use_windows_firewall: true
+  
+  permissions:
+    drop_privileges: true
+    required_capabilities:
+      - "CAP_NET_ADMIN"
+      - "CAP_NET_RAW"
+  
+  services:
+    monitor:
+      - "ssh"
+      - "apache2"
+      - "mysql"
+      - "postgresql"
+
+# Configuration de la réponse automatique
+response:
+  auto_response:
+    enabled: true
+    levels:
+      - name: "info"
+        threshold: 0.3
+        actions:
+          - "log"
+      
+      - name: "warning"
+        threshold: 0.5
+        actions:
+          - "log"
+          - "alert"
+      
+      - name: "critical"
+        threshold: 0.8
+        actions:
+          - "log"
+          - "alert"
+          - "quarantine"
+          - "block_ip"
+  
+  notification:
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      smtp_port: 587
+      use_tls: true
+      from: "biocybe@example.com"
+      to: "admin@example.com"
+      critical_only: true
+    
+    desktop:
+      enabled: true
+      critical_only: false
+    
+    webhook:
+      enabled: false
+      url: "https://example.com/webhook"
+      format: "json"
+
+# Configuration du stockage et des données
+storage:
+  database:
+    type: "sqlite"  # sqlite, mysql, postgresql
+    path: "db/biocybe.db"
+    backup:
+      enabled: true
+      interval_hours: 24
+      retention_count: 7
+  
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+    key_rotation_days: 30
+
+# Configuration de la recherche et développement
+research:
+  simulation:
+    enabled: false
+    scenarios_path: "scenarios/"
+    auto_run: false
+  
+  documentation:
+    auto_generate: true
+    output_path: "docs/"
+    format: "markdown"
