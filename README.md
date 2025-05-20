@@ -79,6 +79,37 @@ Chaque module "cellulaire" de BioCybe fonctionne de façon autonome mais interco
 - Web APIs         - P2P Communication
 ```
 
+## 🧠 IA explicable et éthique
+
+Contrairement à Darktrace souvent critiqué pour son **manque de transparence** (black box), BioCybe se distingue par :
+
+### 📊 Visualisation claire des décisions
+- Interface intuitive de visualisation des alertes et détections
+- Cartographie en temps réel des menaces et des réponses du système
+- Tableaux de bord personnalisables avec niveaux de détail adaptatifs
+- Représentation graphique des chemins d'attaque et vecteurs de menace
+
+### 🔍 Modèles explicables (XAI)
+- Utilisation systématique de frameworks d'IA explicable
+- Documentation précise des paramètres et poids des modèles
+- Mécanismes d'attention visualisables pour comprendre les focus d'analyse
+- Explications en langage naturel des décisions algorithmiques
+- Traçabilité complète du processus décisionnel
+
+### 📝 Règles de sécurité lisibles par les humains
+- Ensemble de règles claires et documentées
+- Possibilité de créer et modifier manuellement les règles
+- Traduction automatique des détections complexes en explications simples
+- Documentation contextuelle intégrée à l'interface
+
+### 🛡️ Cadre éthique open-source
+- Conformité RGPD intégrée dès la conception
+- Approche non-invasive respectant les données sensibles
+- Paramètres granulaires de confidentialité
+- Audits communautaires réguliers du code source
+- Charte éthique pour l'IA en cybersécurité
+- Mécanismes de consentement explicite pour la collecte de données
+
 ## 📊 Différenciation avec les solutions commerciales
 
 Contrairement aux solutions commerciales comme Darktrace, BioCybe offre :
@@ -136,39 +167,3 @@ Ce projet est sous licence [MIT](LICENSE).
 ## 📞 Contact
 
 Pour toute question ou suggestion, n'hésitez pas à me contacter.
-
-## 🔍 Analyse comparative des stages en cybersécurité
-
-### 🏢 Stage 1 – Projet Linux/Sécurité à Mons
-#### 🔧 Compétences développées :
-* Fortes compétences en **Linux**, **scripting Python**, **automatisation**.
-* Compréhension profonde de la **sécurisation de bases de données**.
-* Utilisation de **Wazuh (SIEM)** = bonne base pour la détection des menaces.
-* Approche "**offensive/défensive**" grâce au pentest.
-
-#### 🎓 Avantages :
-* Projet structuré avec un **défi clair et complet**.
-* Mise en pratique d'un **cycle complet de sécurisation**, très valorisant sur un CV.
-* Technologies open-source et généralistes, **fortement transférables**.
-* Possibilité de produire un **livrable concret** (script d'automatisation).
-
-#### ⚠️ Inconvénients :
-* Moins d'exposition à un environnement **réel en production**.
-* Peu de contact avec des **équipements industriels ou commerciaux (ex : Fortinet, Cisco)**.
-* Peut être un peu isolé techniquement, dépend du niveau d'encadrement.
-
-### 🏥 Stage 2 – Sécurité opérationnelle à l'hôpital Erasme
-#### 🔧 Compétences développées :
-* Gestion des **firewalls (Fortinet)**, **WAF**, **VPN**, **load balancer** = compétences réseau essentielles.
-* Expérience concrète dans un **environnement de production critique**.
-* Exposition à des outils **professionnels du marché**.
-
-#### 🎓 Avantages :
-* **Expérience très concrète** du terrain, bonne pour un futur poste en ingénierie sécurité réseau.
-* Familiarité avec des **solutions leaders** (Fortinet, Cisco) → très valorisé dans les postes opérationnels.
-* Possibilité de travailler dans une équipe **multi-disciplinaire**, utile pour le relationnel IT/sécurité.
-
-#### ⚠️ Inconvénients :
-* Moins de projet personnel ou de livrable démontrable.
-* Rôle plus **opérationnel/répétitif**.
-* Moins d'autonomie ou de créativité technique.
