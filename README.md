@@ -2,115 +2,132 @@
 ![biocybe](https://github.com/user-attachments/assets/adcd4e78-50c5-4431-ac06-1b3f47969c50)
 
 
-# BioCybe - Système de Défense Informatique Bio-Inspiré
+# BioCybe - Le système immunitaire numérique libre, modulaire et explicable
+
+*Pour les hackers, chercheurs et défenseurs de la liberté numérique.*
 
 ## 🧬 Vision du Projet
 
-BioCybe est un logiciel de cybersécurité innovant inspiré du système immunitaire humain, capable de détecter, isoler et neutraliser les menaces informatiques de manière autonome et adaptative. En combinant les principes de l'immunologie avec l'intelligence artificielle avancée, BioCybe représente une nouvelle génération de défense contre les malwares.
+BioCybe est un système de cybersécurité open-source bio-inspiré, positionné comme un "laboratoire vivant" à la croisée de l'IA, la cybersécurité et la biologie. Notre plateforme modulaire s'inspire profondément du système immunitaire humain pour créer une protection adaptative, explicable et éthique contre les menaces numériques.
 
-### Mon Innovation
+### Notre Innovation
 
-Cette combinaison ouvre la voie à des systèmes de sécurité auto-guérisseurs, capables de s'adapter dynamiquement aux menaces inconnues, tout comme le système immunitaire apprend à combattre de nouveaux pathogènes.
+Nous nous distinguons par :
 
-Le projet se distingue par :
+- **Approche scientifique & open-source radicale** : Publications, modules expérimentaux et communauté de recherche active
+- **Architecture modulaire bio-inspirée** : Système composé de "cellules" spécialisées et autonomes
+- **IA explicable et éthique** : Visualisation des décisions et modèles transparents
+- **Cybersécurité décentralisée** : Protection des appareils isolés, IoT et réseaux edge
+- **Hybridation multi-biologique** : Intégration d'algorithmes inspirés des fourmis, de l'épigénétique, et de la coévolution
+- **Focus inclusif** : Adaptation aux particuliers, ONG, journalistes et organisations à budget limité
 
-- **Hybridation IA/Immunologie** : Combinaison du Reinforcement Learning et des modèles de Danger Theory
-- **Auto-guérison** : Remplacement des fichiers corrompus via blockchain (mémoire distribuée)
-- **Détection épigénétique** : Analyse des modifications de métadonnées (timestamps, entropie, etc.)
+## 🔬 Architecture Bio-Inspirée Modulaire
 
-## 🔬 Analogies Biologiques
+BioCybe décompose la cybersécurité en modules inspirés des cellules du système immunitaire :
 
-| Système Immunitaire | BioCybe |
-|---------------------|--------|
-| Anticorps | Détecteurs de signatures |
-| Lymphocytes T | Analyse comportementale |
-| Mémoire immunitaire | Base de données adaptative |
-| Cellules dendritiques | Sandbox d'analyse |
-| Réponse inflammatoire | Isolation et confinement |
+| Module Biocybe | Inspiration Biologique | Fonction |
+|----------------|------------------------|----------|
+| **Macrophages** | Macrophages du système immunitaire | Détection passive et surveillance continue |
+| **Lymphocytes B** | Cellules B | Identification de signatures et patterns connus |
+| **Lymphocytes T** | Cellules T | Analyse comportementale et détection d'anomalies |
+| **Cellules NK** | Natural Killer Cells | Neutralisation rapide des menaces identifiées |
+| **Mémoire Immunitaire** | Lymphocytes mémoires | Apprentissage adaptatif et historique des menaces |
+| **Barrière Épithéliale** | Peau et muqueuses | Protection de périmètre et filtrage initial |
 
-## 🛠️ Architecture & Composants
+## 🧩 Composants Techniques
 
-BioCybe est composé de quatre modules principaux, chacun inspiré d'un aspect du système immunitaire :
+Chaque module "cellulaire" de BioCybe fonctionne de façon autonome mais interconnectée :
 
-### 1. Module de Détection (Identification)
+### 1. Macrophages (Détection passive)
+- Surveillance continue des systèmes et réseaux
+- Monitoring de base sans impact sur les performances
+- Première alerte en cas d'activité inhabituelle
 
-- **Analyse Statique** :
-  - Signatures via bases de données de malwares (YARA, VirusTotal)
-  - Machine Learning : CNN et Transformers pour reconnaissance de patterns
+### 2. Lymphocytes B (Identification de signature)
+- Base de données de signatures de malwares
+- Détection basée sur YARA et empreintes cryptographiques
+- Mise à jour communautaire des définitions de menaces
 
-- **Analyse Dynamique** :
-  - Surveillance comportementale via sandboxing
-  - Détection d'anomalies par ML non supervisé
+### 3. Lymphocytes T (Analyse comportementale)
+- Détection d'anomalies par apprentissage machine
+- Surveillance du comportement des processus
+- Identification des actions suspectes sans signature connue
 
-### 2. Module d'Isolation (Confinement)
+### 4. Cellules NK (Neutralisation)
+- Isolation immédiate des processus suspects
+- Quarantaine des fichiers potentiellement malveillants
+- Actions automatisées ou semi-automatisées selon configuration
 
-- Quarantaine automatisée
-- Sandboxing avancé
-- Conteneurisation pour limiter la propagation
+### 5. Mémoire Immunitaire (Historique adaptatif)
+- Apprentissage continu et adaptation du système
+- Base de connaissances des incidents passés
+- Amélioration du taux de détection et réduction des faux positifs
 
-### 3. Module de Neutralisation (Destruction)
+### 6. Autres modules inspirés de la nature
+- **Algorithmes de colonies de fourmis** pour la détection collaborative
+- **Systèmes épigénétiques** pour l'adaptation aux environnements spécifiques
+- **Simulateurs coévolutifs** pour l'entraînement défensif
 
-- Suppression sécurisée des fichiers corrompus
-- Rétablissement du système via backups
-- Patch automatique des vulnérabilités exploitées
-
-### 4. Module d'Apprentissage (Mémoire Immunitaire)
-
-- Reinforcement Learning pour amélioration continue
-- Mise à jour en temps réel des signatures
-- Collaboration communautaire dans le partage des menaces
-
-
-
-## 🔧 Technologies
+## 🔧 Technologies utilisées
 
 ```
-- Python 3.10+       - TensorFlow/PyTorch
-- YARA Rules         - Docker
-- Cuckoo Sandbox     - Suricata
-- Ghidra/Radare2     - AWS/GCP (Cloud)
-- Neo4j (Graphe)     - Elasticsearch
+- Python           - TensorFlow/PyTorch
+- Docker           - Kubernetes (orchestration)
+- YARA Rules       - Elastic Stack
+- Cuckoo Sandbox   - Suricata/Zeek
+- Distributed DB   - XAI frameworks
+- Web APIs         - P2P Communication
 ```
 
-## 📊 Avantages par rapport aux solutions existantes
+## 📊 Différenciation avec les solutions commerciales
 
-Les solutions actuelles sont fragmentaires, alors que BioCybe intègre toutes les phases de la défense immunitaire numérique :
+Contrairement aux solutions commerciales comme Darktrace, BioCybe offre :
 
-- **Complet** : Détection + Isolation + Neutralisation + Apprentissage
-- **Adaptatif** : S'améliore en continu face aux nouvelles menaces
-- **Proactif** : N'attend pas les signatures, détecte par comportement
-- **Économe** : Utilisation intelligente des ressources système
+- **Transparence complète** : Code source ouvert et documentation détaillée
+- **IA explicable** : Visualisation des décisions et processus de détection
+- **Décentralisation** : Fonctionne sur edge et appareils à ressources limitées
+- **Adaptabilité communautaire** : Extensible par des modules tiers
+- **Éthique by design** : Respect de la vie privée et conformité RGPD intégrée
+- **Accessibilité universelle** : Protège aussi bien les particuliers que les organisations
 
-## 💡 Fondements Scientifiques
+## 🔬 Laboratoire Vivant & Recherche
 
-BioCybe s'appuie sur plusieurs avancées scientifiques :
+BioCybe est aussi une plateforme de recherche avec :
 
-### Danger Theory + Reinforcement Learning
+- **Publications scientifiques** : Papers et documentation de recherche
+- **Modules expérimentaux** : Testables par la communauté via Docker/API
+- **Notebooks Jupyter** : Pour expérimentation et pédagogie
+- **Challenges de sécurité** : Pour renforcer et tester le système
+- **API ouverte** : Permettant à d'autres chercheurs de créer leurs propres "cellules"
 
-La combinaison de la Danger Theory (Stephanie Forrest, 1990) et du Reinforcement Learning crée un système auto-adaptatif :
+## 💡 Cas d'usage
 
-1. Les **signaux de danger** (CPU surutilisé, fichiers cryptés) deviennent des états nécessitant action
-2. Le **système de récompense** du RL guide l'apprentissage :
-   - Récompense positive si l'action réduit le danger
-   - Pénalité pour actions inefficaces ou dommages collatéraux
+- **Protection personnelle** : Ordinateurs, maisons connectées, smartphones
+- **Organisations à budget limité** : ONG, journalistes, petites entreprises
+- **Infrastructure critique légère** : Systèmes médicaux, services municipaux
+- **Éducation** : Formation en cybersécurité par analogie biologique
+- **R&D en IA** : Plateforme d'expérimentation pour chercheurs
 
-## 📚 Ressources & Documentation
+## 📚 Documentation & Communauté
 
-Le dossier "docs" contient des informations détaillées sur :
-- L'architecture technique
-- Les modèles d'IA utilisés
-- Les analogies immunologiques
-- Les scénarios de test
+Le dossier "docs" contient :
+- Documentation technique complète
+- Guides d'implémentation par module
+- Explications des analogies biologiques
+- Tutoriels et cas d'étude
+- Publications et papiers de recherche
 
 ## 👥 Contributions
 
-BioCybe est un projet ouvert aux contributions. Pour participer :
+BioCybe encourage les contributions de la communauté :
 
 1. Forker le projet
-2. Créer une branche (`git checkout -b feature/nouvelleFonctionnalite`)
-3. Commiter vos changements (`git commit -m 'Ajout de nouvelleFonctionnalite'`)
-4. Pusher sur la branche (`git push origin feature/nouvelleFonctionnalite`)
+2. Créer une branche (`git checkout -b feature/nouvelleCellule`)
+3. Commiter vos changements (`git commit -m 'Ajout d'un nouveau type de cellule'`)
+4. Pusher sur la branche (`git push origin feature/nouvelleCellule`)
 5. Ouvrir une Pull Request
+
+Rejoignez notre communauté sur GitHub Discussions et Discord pour partager vos idées !
 
 ## 📄 Licence
 
