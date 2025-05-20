@@ -119,3 +119,39 @@ Ce projet est sous licence [MIT](LICENSE).
 ## 📞 Contact
 
 Pour toute question ou suggestion, n'hésitez pas à me contacter.
+
+## 🔍 Analyse comparative des stages en cybersécurité
+
+### 🏢 Stage 1 – Projet Linux/Sécurité à Mons
+#### 🔧 Compétences développées :
+* Fortes compétences en **Linux**, **scripting Python**, **automatisation**.
+* Compréhension profonde de la **sécurisation de bases de données**.
+* Utilisation de **Wazuh (SIEM)** = bonne base pour la détection des menaces.
+* Approche "**offensive/défensive**" grâce au pentest.
+
+#### 🎓 Avantages :
+* Projet structuré avec un **défi clair et complet**.
+* Mise en pratique d'un **cycle complet de sécurisation**, très valorisant sur un CV.
+* Technologies open-source et généralistes, **fortement transférables**.
+* Possibilité de produire un **livrable concret** (script d'automatisation).
+
+#### ⚠️ Inconvénients :
+* Moins d'exposition à un environnement **réel en production**.
+* Peu de contact avec des **équipements industriels ou commerciaux (ex : Fortinet, Cisco)**.
+* Peut être un peu isolé techniquement, dépend du niveau d'encadrement.
+
+### 🏥 Stage 2 – Sécurité opérationnelle à l'hôpital Erasme
+#### 🔧 Compétences développées :
+* Gestion des **firewalls (Fortinet)**, **WAF**, **VPN**, **load balancer** = compétences réseau essentielles.
+* Expérience concrète dans un **environnement de production critique**.
+* Exposition à des outils **professionnels du marché**.
+
+#### 🎓 Avantages :
+* **Expérience très concrète** du terrain, bonne pour un futur poste en ingénierie sécurité réseau.
+* Familiarité avec des **solutions leaders** (Fortinet, Cisco) → très valorisé dans les postes opérationnels.
+* Possibilité de travailler dans une équipe **multi-disciplinaire**, utile pour le relationnel IT/sécurité.
+
+#### ⚠️ Inconvénients :
+* Moins de projet personnel ou de livrable démontrable.
+* Rôle plus **opérationnel/répétitif**.
+* Moins d'autonomie ou de créativité technique.
