@@ -1,3 +1,6 @@
+![biocybe](https://github.com/user-attachments/assets/faabdc39-3e07-42f0-9ec8-55258e8a876d)
+
+
 # BioCybe
 
 ## 🔬 Système de cybersécurité bio-inspiré, modulaire et explicable
