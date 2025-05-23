@@ -1,47 +1,18 @@
+# BioCybe
 
-![biocybe](https://github.com/user-attachments/assets/adcd4e78-50c5-4431-ac06-1b3f47969c50)
+## 🔬 Système de cybersécurité bio-inspiré, modulaire et explicable
 
+BioCybe est un système de cybersécurité open-source inspiré du système immunitaire biologique, offrant une alternative transparente, modulaire et éthique aux solutions commerciales fermées.
 
-# BioCybe - Le système immunitaire numérique libre, modulaire et explicable
+## 🧬 Architecture bio-inspirée
 
-*Pour les hackers, chercheurs et défenseurs de la liberté numérique.*
-
-## 🧬 Vision du Projet
-
-BioCybe est un système de cybersécurité open-source bio-inspiré, positionné comme un "laboratoire vivant" à la croisée de l'IA, la cybersécurité et la biologie. Notre plateforme modulaire s'inspire profondément du système immunitaire humain pour créer une protection adaptative, explicable et éthique contre les menaces numériques.
-
-### Notre Innovation
-
-Nous nous distinguons par :
-
-- **Approche scientifique & open-source radicale** : Publications, modules expérimentaux et communauté de recherche active
-- **Architecture modulaire bio-inspirée** : Système composé de "cellules" spécialisées et autonomes
-- **IA explicable et éthique** : Visualisation des décisions et modèles transparents
-- **Cybersécurité décentralisée** : Protection des appareils isolés, IoT et réseaux edge
-- **Hybridation multi-biologique** : Intégration d'algorithmes inspirés des fourmis, de l'épigénétique, et de la coévolution
-- **Focus inclusif** : Adaptation aux particuliers, ONG, journalistes et organisations à budget limité
-
-## 🔬 Architecture Bio-Inspirée Modulaire
-
-BioCybe décompose la cybersécurité en modules inspirés des cellules du système immunitaire :
-
-| Module Biocybe | Inspiration Biologique | Fonction |
-|----------------|------------------------|----------|
-| **Macrophages** | Macrophages du système immunitaire | Détection passive et surveillance continue |
-| **Lymphocytes B** | Cellules B | Identification de signatures et patterns connus |
-| **Lymphocytes T** | Cellules T | Analyse comportementale et détection d'anomalies |
-| **Cellules NK** | Natural Killer Cells | Neutralisation rapide des menaces identifiées |
-| **Mémoire Immunitaire** | Lymphocytes mémoires | Apprentissage adaptatif et historique des menaces |
-| **Barrière Épithéliale** | Peau et muqueuses | Protection de périmètre et filtrage initial |
-
-## 🧩 Composants Techniques
-
-Chaque module "cellulaire" de BioCybe fonctionne de façon autonome mais interconnectée :
+BioCybe s'inspire du système immunitaire pour créer une défense en profondeur, adaptative et résiliente. Notre architecture modulaire est composée de "cellules" spécialisées qui travaillent ensemble pour détecter, identifier et neutraliser les menaces.
 
 ### 1. Macrophages (Détection passive)
-- Surveillance continue des systèmes et réseaux
-- Monitoring de base sans impact sur les performances
-- Première alerte en cas d'activité inhabituelle
+- Surveillance continue de l'environnement
+- Détection des anomalies et comportements suspects
+- Analyse passive des fichiers, processus et trafic réseau
+- Première ligne de défense non-intrusive
 
 ### 2. Lymphocytes B (Identification de signature)
 - Base de données de signatures de malwares
@@ -69,7 +40,6 @@ Chaque module "cellulaire" de BioCybe fonctionne de façon autonome mais interco
 - **Simulateurs coévolutifs** pour l'entraînement défensif
 
 ## 🔧 Technologies utilisées
-
 ```
 - Python           - TensorFlow/PyTorch
 - Docker           - Kubernetes (orchestration)
@@ -113,7 +83,6 @@ Contrairement à Darktrace souvent critiqué pour son **manque de transparence**
 ## 📊 Différenciation avec les solutions commerciales
 
 Contrairement aux solutions commerciales comme Darktrace, BioCybe offre :
-
 - **Transparence complète** : Code source ouvert et documentation détaillée
 - **IA explicable** : Visualisation des décisions et processus de détection
 - **Décentralisation** : Fonctionne sur edge et appareils à ressources limitées
@@ -124,7 +93,6 @@ Contrairement aux solutions commerciales comme Darktrace, BioCybe offre :
 ## 🔬 Laboratoire Vivant & Recherche
 
 BioCybe est aussi une plateforme de recherche avec :
-
 - **Publications scientifiques** : Papers et documentation de recherche
 - **Modules expérimentaux** : Testables par la communauté via Docker/API
 - **Notebooks Jupyter** : Pour expérimentation et pédagogie
@@ -151,14 +119,23 @@ Le dossier "docs" contient :
 ## 👥 Contributions
 
 BioCybe encourage les contributions de la communauté :
-
 1. Forker le projet
 2. Créer une branche (`git checkout -b feature/nouvelleCellule`)
 3. Commiter vos changements (`git commit -m 'Ajout d'un nouveau type de cellule'`)
 4. Pusher sur la branche (`git push origin feature/nouvelleCellule`)
 5. Ouvrir une Pull Request
 
+Consultez notre [Guide de Contribution](CONTRIBUTING.md) et notre [Code de Conduite](CODE_OF_CONDUCT.md) pour plus d'informations.
+
 Rejoignez notre communauté sur GitHub Discussions et Discord pour partager vos idées !
+
+## 🧩 Architecture modulaire et extensible
+
+BioCybe est conçu pour être facilement extensible. Notre architecture modulaire permet à chacun de créer ses propres "cellules" de défense et de les intégrer au système. Consultez notre [Documentation d'Architecture](docs/architecture.md) pour comprendre comment étendre le système.
+
+## 🔒 Principes éthiques
+
+Nous croyons fermement que la cybersécurité doit respecter des principes éthiques stricts. Notre [Cadre Éthique](ETHICS.md) détaille notre engagement envers la transparence, le respect de la vie privée, la non-discrimination et le consentement éclairé.
 
 ## 📄 Licence
 
