@@ -54,7 +54,7 @@ BioCybe s'inspire du système immunitaire pour créer une défense en profondeur
 
 ## 🧠 IA explicable et éthique
 
-Contrairement à Darktrace souvent critiqué pour son **manque de transparence** (black box), BioCybe se distingue par :
+BioCybe se distingue par :
 
 ### 📊 Visualisation claire des décisions
 - Interface intuitive de visualisation des alertes et détections
