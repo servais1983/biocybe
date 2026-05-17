@@ -22,7 +22,7 @@ from typing import Dict, List, Any, Set, Optional, Tuple
 import hashlib
 
 # Import des classes du noyau BioCybe
-from biocybe_core import BiologicalCell, CellMessage
+from ..biocybe_core import BiologicalCell, CellMessage
 
 # Configuration du logger
 logger = logging.getLogger("biocybe.macrophage")
