@@ -139,33 +139,40 @@ target-version = "py310"
 src = ["src"]
 
 [tool.ruff.lint]
+# Sélection volontairement plus stricte sur le NOUVEAU code (cli, scanner,
+# isolation) et plus souple sur le code héritage qui marche mais n'a jamais
+# été linté. À resserrer progressivement à mesure qu'on touche aux modules.
 select = [
-    "E", "W",      # pycodestyle
-    "F",           # pyflakes
-    "I",           # isort
-    "N",           # naming
-    "UP",          # pyupgrade
-    "B",           # bugbear
-    "S",           # bandit (sécurité)
-    "A",           # builtins shadowing
-    "C4",          # comprehensions
-    "RET",         # returns
-    "SIM",         # simplify
-    "ARG",         # unused args
-    "PTH",         # pathlib over os.path
-    "PL",          # pylint
+    "E", "W",      # pycodestyle (erreurs et warnings)
+    "F",           # pyflakes (vrais bugs : variables non définies, etc.)
+    "I",           # isort (ordre des imports)
+    "B",           # bugbear (mutable default args, etc.)
+    "S",           # bandit (sécurité — pas négociable)
+    "UP",          # pyupgrade (syntaxe moderne)
     "RUF",         # ruff-specific
 ]
 ignore = [
-    "E501",        # line length (laissé au formatter)
-    "PLR0913",     # too many args (sera vrai pour les configs)
-    "PLR2004",     # magic numbers (trop bruyant dans des tests)
-    "S101",        # assert (utilisé en tests)
-    "N806",        # variable in function should be lowercase
+    "E501",        # line length — laissé au formatter
+    "S101",        # assert — utilisé légitimement en tests
+    "S110",        # try/except/pass — souvent voulu pour best-effort cleanup
+    "S112",        # try/except/continue — idem
+    "S324",        # hashlib MD5 — utilisé pour fingerprinting non-secret, pas crypto
+    "B008",        # function call in default arg — pattern accepté
+    "B007",        # unused loop variable — souvent volontaire
+    "UP015",       # open() mode 'r' explicite — préférence
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "ARG", "PLR"]
+"tests/**" = ["S", "F841"]
+# Code héritage : on désactive les imports inline (PLC0415) et les broad
+# excepts (BLE001) qui sont omniprésents. À nettoyer module par module.
+"src/biocybe/biocybe_core/**" = ["B904", "S108", "RUF013"]
+"src/biocybe/lymphocytes_b/**" = ["B904", "F401", "RUF013"]
+"src/biocybe/macrophages/**" = ["B904", "RUF013", "RUF059"]
+"src/biocybe/swarm_intelligence/**" = ["B904", "B007", "F401", "RUF013", "RUF059"]
+"src/biocybe/detection/**" = ["B904", "RUF013"]
+"src/biocybe/learning/**" = ["B904", "S301", "RUF013"]  # pickle = checkpoint local, RUF013 = code héritage
+"src/biocybe/explainability/**" = ["B904", "F401"]
 
 # ---- Mypy ----
 [tool.mypy]

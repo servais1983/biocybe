@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Optional
 
 from .isolation import QuarantineEntry, quarantine_file
 from .lymphocytes_b import BCell, ScanResult
@@ -31,9 +31,10 @@ DEFAULT_RULES_DST = Path("db/signatures/yara")
 @dataclass
 class FileVerdict:
     """Verdict pour un fichier scanné."""
+
     path: Path
     result: ScanResult
-    quarantine: Optional[QuarantineEntry] = None
+    quarantine: QuarantineEntry | None = None
 
     @property
     def is_malicious(self) -> bool:
@@ -91,9 +92,9 @@ def scan_path(
     *,
     recursive: bool = True,
     quarantine: bool = False,
-    cell: Optional[BCell] = None,
+    cell: BCell | None = None,
     sync_rules: bool = True,
-) -> List[FileVerdict]:
+) -> list[FileVerdict]:
     """Scanne un fichier ou un dossier, retourne la liste des verdicts.
 
     Args:
@@ -113,7 +114,7 @@ def scan_path(
     if cell is None:
         cell = BCell("cli_scanner")
 
-    verdicts: List[FileVerdict] = []
+    verdicts: list[FileVerdict] = []
     for file_path in _iter_files(target_path, recursive=recursive):
         try:
             result = cell.scan_file_sync(str(file_path))
@@ -124,9 +125,7 @@ def scan_path(
         verdict = FileVerdict(path=file_path, result=result)
 
         if result.is_malicious and quarantine:
-            reason_parts = [
-                f"yara:{m.get('rule')}" for m in result.matched_rules if m.get("rule")
-            ]
+            reason_parts = [f"yara:{m.get('rule')}" for m in result.matched_rules if m.get("rule")]
             reason_parts += [
                 f"hash:{s.get('value', 'unknown')}"
                 for s in result.matched_signatures
@@ -148,7 +147,7 @@ def scan_path(
     return verdicts
 
 
-def format_report(verdicts: List[FileVerdict]) -> str:
+def format_report(verdicts: list[FileVerdict]) -> str:
     """Rend un rapport texte lisible pour la CLI."""
     total = len(verdicts)
     malicious = [v for v in verdicts if v.is_malicious]

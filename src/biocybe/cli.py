@@ -56,7 +56,7 @@ Le système immunitaire numérique libre, modulaire et explicable.
 
 def _load_config(config_path: str) -> dict | None:
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
         logger.info("Configuration chargée depuis %s", config_path)
         return config
@@ -86,12 +86,22 @@ def _handle_signal(signum, _frame) -> None:
 
 def _create_required_directories() -> None:
     for d in (
-        "db", "db/signatures", "db/signatures/hashes", "db/signatures/yara",
-        "db/memory", "db/metrics",
-        "logs", "quarantine",
-        "models", "models/behavior", "models/network",
-        "rules", "rules/firewall", "rules/yara",
-        "templates", "templates/recovery",
+        "db",
+        "db/signatures",
+        "db/signatures/hashes",
+        "db/signatures/yara",
+        "db/memory",
+        "db/metrics",
+        "logs",
+        "quarantine",
+        "models",
+        "models/behavior",
+        "models/network",
+        "rules",
+        "rules/firewall",
+        "rules/yara",
+        "templates",
+        "templates/recovery",
     ):
         os.makedirs(d, exist_ok=True)
     logger.info("Structure de répertoires créée")
@@ -118,6 +128,7 @@ def _init_core(config: dict) -> BioCybeCore | None:
 
 # --- Sous-commande : scan ------------------------------------------------
 
+
 def cmd_scan(args: argparse.Namespace) -> int:
     """Scan one-shot d'un fichier ou d'un dossier."""
     from .scanner import format_report, scan_path
@@ -141,7 +152,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     {
                         "id": v.quarantine.quarantine_id,
                         "stored_filename": v.quarantine.stored_filename,
-                    } if v.quarantine else None
+                    }
+                    if v.quarantine
+                    else None
                 ),
             }
             for v in verdicts
@@ -154,6 +167,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 # --- Sous-commande par défaut : daemon -----------------------------------
+
 
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Démarre le noyau et les cellules en continu jusqu'à Ctrl+C."""
@@ -205,15 +219,19 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
 # --- Parser --------------------------------------------------------------
 
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="biocybe",
         description="BioCybe — Système de cyberdéfense bio-inspiré",
     )
-    parser.add_argument("-c", "--config", default=DEFAULT_CONFIG_PATH,
-                        help="Chemin vers le fichier de configuration")
-    parser.add_argument("--debug", action="store_true",
-                        help="Active le mode debug")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help="Chemin vers le fichier de configuration",
+    )
+    parser.add_argument("--debug", action="store_true", help="Active le mode debug")
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -222,12 +240,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Scanne un fichier ou un dossier (one-shot)",
     )
     scan_p.add_argument("path", help="Fichier ou dossier à analyser")
-    scan_p.add_argument("--no-recursive", action="store_true",
-                        help="Ne pas descendre dans les sous-dossiers")
-    scan_p.add_argument("--quarantine", action="store_true",
-                        help="Mettre en quarantaine les fichiers détectés")
-    scan_p.add_argument("--json", action="store_true",
-                        help="Sortie JSON au lieu du rapport texte")
+    scan_p.add_argument(
+        "--no-recursive", action="store_true", help="Ne pas descendre dans les sous-dossiers"
+    )
+    scan_p.add_argument(
+        "--quarantine", action="store_true", help="Mettre en quarantaine les fichiers détectés"
+    )
+    scan_p.add_argument("--json", action="store_true", help="Sortie JSON au lieu du rapport texte")
 
     return parser
 

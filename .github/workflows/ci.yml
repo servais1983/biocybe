@@ -38,9 +38,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        exclude:
-          # yara-python n'a pas toujours de wheel pour les combos exotiques
-          # On exclura ici au cas par cas si nécessaire.
+        # Aucune exclusion pour l'instant.
+        # Ajouter ici si une combinaison OS×Python pose problème
+        # (typiquement yara-python sans wheel pour la combo).
     steps:
       - uses: actions/checkout@v4
 

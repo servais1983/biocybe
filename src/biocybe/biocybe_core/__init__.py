@@ -11,4 +11,4 @@ __version__ = "0.1.0"
 __author__ = "BioCybe Team"
 
 # Exporter les classes principales pour faciliter l'importation
-__all__ = ['BioCybeCore', 'BiologicalCell', 'CellMessage']
+__all__ = ["BioCybeCore", "BiologicalCell", "CellMessage"]

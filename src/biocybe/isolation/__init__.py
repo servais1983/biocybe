@@ -20,7 +20,7 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __version__ = "0.1.0"
 
@@ -33,6 +33,7 @@ MANIFEST_FILENAME = "manifest.json"
 @dataclass
 class QuarantineEntry:
     """Une entrée du manifeste de quarantaine."""
+
     quarantine_id: str
     original_path: str
     stored_filename: str
@@ -40,11 +41,11 @@ class QuarantineEntry:
     size_bytes: int
     quarantined_at: str
     reason: str
-    detected_by: Optional[str] = None
-    extra: Dict[str, Any] = field(default_factory=dict)
+    detected_by: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
-def _load_manifest(manifest_path: Path) -> List[Dict[str, Any]]:
+def _load_manifest(manifest_path: Path) -> list[dict[str, Any]]:
     if not manifest_path.exists():
         return []
     try:
@@ -56,7 +57,7 @@ def _load_manifest(manifest_path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def _save_manifest(manifest_path: Path, entries: List[Dict[str, Any]]) -> None:
+def _save_manifest(manifest_path: Path, entries: list[dict[str, Any]]) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with manifest_path.open("w", encoding="utf-8") as f:
         json.dump(entries, f, indent=2, ensure_ascii=False)
@@ -73,9 +74,9 @@ def _sha256_of(path: Path) -> str:
 def quarantine_file(
     file_path: str | os.PathLike,
     reason: str = "manual",
-    detected_by: Optional[str] = None,
+    detected_by: str | None = None,
     quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
-    extra: Optional[Dict[str, Any]] = None,
+    extra: dict[str, Any] | None = None,
 ) -> QuarantineEntry:
     """Déplace un fichier vers la quarantaine et l'enregistre au manifeste.
 
@@ -132,12 +133,16 @@ def quarantine_file(
 
     logger.warning(
         "Fichier mis en quarantaine : %s -> %s (raison=%s)",
-        src, dest, reason,
+        src,
+        dest,
+        reason,
     )
     return entry
 
 
-def list_quarantine(quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR) -> List[Dict[str, Any]]:
+def list_quarantine(
+    quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
+) -> list[dict[str, Any]]:
     """Retourne le contenu du manifeste de quarantaine."""
     return _load_manifest(Path(quarantine_dir) / MANIFEST_FILENAME)
 
