@@ -19,17 +19,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Dépendances de build pour yara-python (libyara, autoconf, etc.)
-# et pour les bibliothèques natives optionnelles (libmagic).
+# Toolchain de build au cas où une dépendance n'a pas de wheel pour
+# notre combinaison Python/Linux. yara-python 4.5+ a des wheels manylinux
+# qui embarquent libyara statiquement, donc pas besoin de libyara-dev ici.
+# libmagic-dev permet de compiler python-magic si l'extra fileanalysis
+# est demandé.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    automake \
-    libtool \
-    pkg-config \
     libssl-dev \
     libmagic-dev \
-    libyara-dev \
-    yara \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -45,16 +43,19 @@ RUN python -m pip install --upgrade pip wheel setuptools \
 # ---------- Stage 2: runtime ----------
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
+# ARG global non visible dans le stage : redéclarer pour ${PYTHON_VERSION}
+ARG PYTHON_VERSION=3.12
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/biocybe/bin:$PATH" \
     PYTHONPATH="/opt/biocybe/lib/python${PYTHON_VERSION}/site-packages"
 
-# Runtime libs uniquement (pas de toolchain)
+# Runtime libs uniquement. libyara est embarqué dans la wheel
+# yara-python pour Linux/manylinux, donc pas besoin du paquet système.
+# libmagic1 est requis seulement si l'extra fileanalysis a été installé.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
-    libyara10 \
-    yara \
     tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 biocybe \
