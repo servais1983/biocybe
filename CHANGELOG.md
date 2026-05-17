@@ -5,8 +5,43 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
-### Ajouté
-- Rien pour l'instant.
+### Phase 2.2 (en cours) : Capacités de détection sérieuses
+
+#### Ajouté
+- **`biocybe scan --dry-run`** : détecte sans agir, indispensable pour
+  évaluation SOC en prod sans risque (Phase 2.2.e).
+- **`biocybe quarantine list` / `restore`** : réversibilité totale de
+  la quarantaine, avec vérification SHA-256 anti-tampering. Options
+  `--no-verify` (forensique), `--keep-manifest` (audit trail),
+  `--to PATH` (restauration alternative) (Phase 2.2.e).
+- **Real-time filesystem monitoring** : nouveau module
+  `biocybe.watcher` qui branche `watchdog` (inotify Linux, FSEvents
+  macOS, ReadDirectoryChangesW Windows) sur le pipeline BCell.
+  Daemon : flags `--watch`, `--watch-quarantine`, `--watch-dry-run`.
+  Architecture 2 threads + débouncing + exclusions anti-boucle (Phase 2.2.a).
+- **Threat Intel abuse.ch / MalwareBazaar** : nouveau module
+  `biocybe.intel.abusech` avec `MalwareBazaarClient` et
+  `update_signatures_from_malwarebazaar()`. CLI : `biocybe intel update
+  [--selector time|100|1000]`. Auth via env `ABUSECH_AUTH_KEY`.
+  Indexe par sha256+sha1+md5 (Phase 2.2.b).
+
+#### Corrigé
+- **`rules/yara/ransomware.yar`** : remplace `pe.sections[].entropy`
+  (requiert build YARA custom) par `math.entropy(pe.sections[].
+  raw_data_offset, raw_data_size)` (module math standard). Les 6 règles
+  ransomware sont désormais actives (Phase 2.2.f).
+- **Boucle de re-quarantaine** : `scan_path` et `FileSystemWatcher`
+  excluent par défaut `quarantine/`, `db/`, `logs/`, `models/`, `.git/`,
+  `__pycache__/`, `.venv/`, `venv/`, `node_modules/`.
+- **JSON serialization** : `BCell.check_file_yara` encode désormais
+  `matched_data` en hex au lieu de bytes bruts, permettant
+  `--json` et l'intégration SIEM.
+- **YARA 4.3+ compat** : `StringMatch.instances[]` au lieu de
+  `.offset`/`.data` direct.
+
+#### Tests
+27 → 34 tests verts (+ 6 watcher + 7 intel + correctifs).
+
 
 ---
 

@@ -199,6 +199,33 @@ def cmd_quarantine_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_intel_update(args: argparse.Namespace) -> int:
+    """Met à jour les bases de signatures depuis les feeds de threat intel."""
+    from .intel import AbuseChAuthMissing, update_signatures_from_malwarebazaar
+
+    try:
+        stats = update_signatures_from_malwarebazaar(
+            db_path=args.db_path,
+            selector=args.selector,
+        )
+    except AbuseChAuthMissing as exc:
+        print(f"Auth manquante : {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Échec mise à jour : {exc}", file=sys.stderr)
+        return 3
+
+    if args.json:
+        print(json.dumps(stats, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"MalwareBazaar : {stats['fetched']} échantillons récupérés, "
+            f"{stats['added']} ajoutés, {stats['updated']} mis à jour. "
+            f"Total signatures : {stats['total']}."
+        )
+    return 0
+
+
 def cmd_quarantine_restore(args: argparse.Namespace) -> int:
     from .isolation import QuarantineIntegrityError, restore_file
 
@@ -405,6 +432,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Garder l'entrée dans le manifeste après restauration (audit trail)",
     )
 
+    # ---------------- intel ----------------
+    intel_p = subparsers.add_parser(
+        "intel",
+        help="Met à jour les signatures depuis les feeds de threat intel",
+    )
+    intel_sub = intel_p.add_subparsers(dest="intel_command", required=True)
+    intel_up = intel_sub.add_parser(
+        "update",
+        help="Télécharge les nouveaux IOC depuis abuse.ch MalwareBazaar",
+    )
+    intel_up.add_argument(
+        "--source",
+        choices=["malwarebazaar"],
+        default="malwarebazaar",
+        help="Source à interroger (autres sources prévues : urlhaus, threatfox)",
+    )
+    intel_up.add_argument(
+        "--selector",
+        default="100",
+        help="MalwareBazaar selector : 'time' (60 min), '100' ou '1000' derniers",
+    )
+    intel_up.add_argument(
+        "--db-path",
+        default="db/signatures",
+        help="Dossier de signatures BioCybe (défaut : db/signatures)",
+    )
+    intel_up.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -424,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_quarantine_list(args)
         if args.q_command == "restore":
             return cmd_quarantine_restore(args)
+    if args.command == "intel" and args.intel_command == "update":
+        return cmd_intel_update(args)
     return cmd_daemon(args)
 
 

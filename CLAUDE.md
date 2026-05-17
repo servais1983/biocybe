@@ -11,15 +11,24 @@ chaque type de cellule (macrophage, lymphocyte B/T, cellule NK, mémoire) est un
 module Python qui communique avec les autres via un bus de messages (`CellMessage`).
 Objectif final : alternative transparente, modulaire et explicable aux EDR fermés.
 
-## 2. État réel du code (mai 2026)
+## 2. État réel du code (mai 2026 — Phase 2.2 en cours)
 
-### Implémenté et fonctionnel
-- `src/biocybe_core/core.py` — `BioCybeCore`, `BiologicalCell`, `CellMessage` (bus pub/sub entre cellules)
-- `src/macrophages/macrophage.py` — monitoring système via `psutil` (CPU, mémoire, réseau, processus)
-- `src/lymphocytes_b/b_cell.py` — détection par signatures (hash + YARA), `SignatureDatabase`
-- `src/detection/signature_detector.py`, `src/learning/reinforcement_learning.py`, `src/explainability/{explainer,ethical_framework}.py`, `src/swarm_intelligence/__init__.py` — code substantiel mais **non intégré au pipeline principal** (jamais appelés par `biocybe.py`)
-- `rules/yara/ransomware.yar` — vraies règles YARA (237 lignes)
-- `biocybe.py` — orchestrateur CLI, démarre macrophages + B-cells
+### Implémenté et intégré au pipeline (Phase 2.2)
+- `src/biocybe/biocybe_core/core.py` — `BioCybeCore`, `BiologicalCell`, `CellMessage` (bus pub/sub entre cellules)
+- `src/biocybe/macrophages/macrophage.py` — monitoring système via `psutil`
+- `src/biocybe/lymphocytes_b/b_cell.py` — détection par signatures (hash + YARA), `SignatureDatabase`
+- `src/biocybe/scanner.py` — pipeline scan-quarantaine-rapport
+- `src/biocybe/isolation/` — quarantaine + restore avec vérif SHA-256
+- `src/biocybe/watcher.py` — real-time monitoring (watchdog)
+- `src/biocybe/intel/abusech.py` — feed MalwareBazaar
+- `src/biocybe/cli.py` — point d'entrée `biocybe`, sous-commandes `scan`, `quarantine list/restore`, `intel update`
+- `rules/yara/ransomware.yar` + `eicar.yar` — 7 règles compilées activement
+
+### Codé mais non encore intégré au pipeline (héritage à recycler)
+- `src/biocybe/detection/signature_detector.py`
+- `src/biocybe/learning/reinforcement_learning.py`
+- `src/biocybe/explainability/{explainer,ethical_framework}.py`
+- `src/biocybe/swarm_intelligence/__init__.py`
 
 ### Stub explicite (lève `NotImplementedError`)
 - `src/isolation/` — quarantaine
@@ -130,11 +139,16 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 
 | Phase | Statut | Objectif livrable |
 |---|---|---|
-| 0 — Déverrouillage | ✅ fait | Le système démarre, 8 smoke tests verts |
-| 1 — MVP démontrable | ✅ fait | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
-| **2.1 — Distribution sans friction** | ✅ fait | `pip install`, Docker, CI multi-OS×Python, pyproject PEP 621, pre-commit, CHANGELOG |
-| 2.2 — Détection sérieuse | 🚧 prochain | Real-time `watchdog`, feeds IOC abuse.ch, +10k règles YARA communautaires, Lymphocyte T (IsolationForest), `--dry-run`, restore quarantaine |
-| 2.3 — Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME sur ML |
+| 0 — Déverrouillage | ✅ | Le système démarre, 8 smoke tests verts |
+| 1 — MVP démontrable | ✅ | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
+| 2.1 — Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS×Python, pyproject PEP 621, pre-commit, CHANGELOG |
+| 2.2.a — Real-time watcher | ✅ | `--watch` daemon, watchdog cross-OS, débouncing, anti-boucle, 6 tests |
+| 2.2.b — Threat intel | 🚧 partiel | MalwareBazaar ✅. À faire : URLhaus, ThreatFox |
+| 2.2.c — Règles YARA communautaires | ⏳ | Import opt-in Neo23x0/signature-base, YARA-Rules/rules |
+| 2.2.d — Lymphocyte T (ML) | ⏳ | IsolationForest sur métriques psutil + SHAP explainability |
+| 2.2.e — `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
+| 2.2.f — Fix `ransomware.yar` | ✅ | math.entropy au lieu de pe.entropy, 6 règles actives |
+| 2.3 — Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |
 | 2.4 — Hardening production | ⏳ | Quarantaine chiffrée AES-GCM, image distroless + SBOM, limites ressources, benchmark MalwareBazaar public |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |
 

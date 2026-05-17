@@ -44,16 +44,36 @@ python -m pytest tests/ -v
 ### Usage
 
 ```bash
+# --- Scan one-shot ---
 biocybe scan ./un_dossier                  # scan récursif, rapport texte
 biocybe scan ./un_dossier --quarantine     # + déplacer les détections en quarantaine
+biocybe scan ./un_dossier --quarantine --dry-run   # éval prod : détecte sans agir
 biocybe scan ./un_dossier --json           # sortie machine-readable pour SIEM
-biocybe scan ./un_dossier --no-recursive   # uniquement les fichiers à plat
-biocybe                                    # daemon : surveillance continue (Ctrl+C stop)
+biocybe scan ./un_dossier --no-recursive
+
+# --- Gestion de la quarantaine ---
+biocybe quarantine list                    # affiche le manifeste
+biocybe quarantine list --json
+biocybe quarantine restore <id>            # restauration avec vérification SHA-256
+biocybe quarantine restore <id> --to /chemin/alternatif
+biocybe quarantine restore <id> --keep-manifest    # garde l'audit trail
+
+# --- Threat intel : abuse.ch MalwareBazaar (auth gratuite requise) ---
+export ABUSECH_AUTH_KEY="..."              # cf. https://auth.abuse.ch
+biocybe intel update                       # 100 derniers échantillons
+biocybe intel update --selector time       # derniers 60 min
+biocybe intel update --selector 1000       # 1000 derniers
+
+# --- Daemon avec real-time monitoring ---
+biocybe --watch /var/log --watch /tmp                      # alert-only
+biocybe --watch /var/log --watch-quarantine                # auto-quarantine
+biocybe --watch /var/log --watch-quarantine --watch-dry-run  # simulation
 ```
 
-Exit code 1 si au moins une menace est détectée — intégrable dans un pipeline CI.
+Exit code 1 si menace détectée — intégrable dans un pipeline CI/CD.
 Les fichiers en quarantaine sont indexés dans `quarantine/manifest.json` (chemin
 original, hash SHA-256, règle déclenchante, horodatage, cellule détectrice).
+La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tampering).
 
 ## 🗺 Roadmap
 
@@ -62,7 +82,12 @@ original, hash SHA-256, règle déclenchante, horodatage, cellule détectrice).
 | **0** Déverrouillage | ✅ | Le système démarre sans erreur ; 8 smoke tests verts |
 | **1** MVP démontrable | ✅ | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
 | **2.1** Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS/Python, pre-commit |
-| **2.2** Détection sérieuse | ⏳ | Real-time `watchdog`, feeds IOC abuse.ch, +10k règles YARA communautaires, Lymphocyte T (IsolationForest), `--dry-run`, restore quarantaine |
+| **2.2.a** Real-time monitoring | ✅ | `--watch` + watchdog + débouncing + anti-boucle |
+| **2.2.b** Threat intel | 🚧 | MalwareBazaar ✅, URLhaus/ThreatFox à venir |
+| **2.2.c** Règles YARA communautaires | ⏳ | Import opt-in Neo23x0/signature-base, YARA-Rules/rules |
+| **2.2.d** Lymphocyte T (ML anomalies) | ⏳ | IsolationForest sur métriques psutil |
+| **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
+| **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
 | **2.3** Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |
 | **2.4** Hardening production | ⏳ | Quarantaine chiffrée, image distroless + SBOM, limites ressources, benchmark MalwareBazaar |
 
