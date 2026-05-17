@@ -122,8 +122,13 @@ rule Advanced_Ransomware_Behavior {
             (2 of ($evasion*)) and
             (2 of ($enum*))
         ) and
-        pe.sections[0].entropy > 6.8 and
-        pe.sections[1].entropy > 6.5
+        // Entropie élevée sur la 1re et 2e section : indicateur de
+        // packing/chiffrement (signature comportementale courante chez
+        // les ransomwares modernes). math.entropy fonctionne avec le
+        // build YARA standard (entropy direct sur pe.sections[] requiert
+        // un build custom avec module entropy).
+        math.entropy(pe.sections[0].raw_data_offset, pe.sections[0].raw_data_size) > 6.8 and
+        math.entropy(pe.sections[1].raw_data_offset, pe.sections[1].raw_data_size) > 6.5
 }
 
 // Danger Theory - Signaux comportementaux
@@ -202,7 +207,7 @@ rule Polymorphic_Ransomware {
             (2 of ($decrypt*)) or
             (all of ($jmp*))
         ) and
-        pe.sections[0].entropy > 7.2
+        math.entropy(pe.sections[0].raw_data_offset, pe.sections[0].raw_data_size) > 7.2
 }
 
 // Détection basée sur l'immunité collective (partage de connaissances)
