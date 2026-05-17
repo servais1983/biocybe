@@ -253,10 +253,42 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     logger.info("Démarrage du système BioCybe...")
     _core.start()
 
+    # ---- Real-time watcher (Phase 2.2.a) ----
+    # Le watcher tourne en plus du noyau et alimente les détections
+    # temps-réel via la même BCell que celle utilisée par `scan`.
+    watcher = None
+    watch_dirs: list[str] = list(getattr(args, "watch", []) or [])
+    if not watch_dirs:
+        # Fallback : lire depuis config si pas d'arg CLI
+        watch_dirs = config.get("core", {}).get("watch_directories", []) or []
+
+    if watch_dirs:
+        from .lymphocytes_b import BCell
+        from .scanner import sync_yara_rules
+        from .watcher import FileSystemWatcher
+
+        sync_yara_rules()  # assure que les règles sont à jour avant le watcher
+        rt_cell = BCell("realtime_watcher")
+        watcher = FileSystemWatcher(
+            watch_dirs,
+            cell=rt_cell,
+            quarantine_on_match=args.watch_quarantine,
+            dry_run=args.watch_dry_run,
+        )
+        watcher.start()
+
     print(_BANNER)
     print(f"Système démarré à {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Cellules actives : {len(_core.cells)}")
     print(f"Types de cellules : {', '.join(_core.cell_types.keys())}")
+    if watch_dirs:
+        if args.watch_dry_run:
+            rt_mode = "DRY-RUN"
+        elif args.watch_quarantine:
+            rt_mode = "QUARANTINE"
+        else:
+            rt_mode = "ALERT-ONLY"
+        print(f"Watcher temps-réel : {len(watch_dirs)} dossier(s), mode {rt_mode}")
     print("Appuyez sur Ctrl+C pour arrêter le système")
 
     try:
@@ -271,6 +303,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     except Exception as exc:
         logger.error("Erreur dans la boucle principale : %s", exc)
     finally:
+        if watcher is not None:
+            watcher.stop()
         if _core and _core.active:
             logger.info("Arrêt du système BioCybe...")
             _core.stop()
@@ -294,6 +328,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Chemin vers le fichier de configuration",
     )
     parser.add_argument("--debug", action="store_true", help="Active le mode debug")
+    # Flags du daemon par défaut (utilisables sans sous-commande).
+    # Noms distincts des flags `scan` pour éviter les ambiguïtés argparse.
+    parser.add_argument(
+        "--watch",
+        action="append",
+        metavar="DIR",
+        help="Dossier à surveiller en temps réel (répétable). "
+        "Sinon utilise core.watch_directories de la config.",
+    )
+    parser.add_argument(
+        "--watch-quarantine",
+        action="store_true",
+        dest="watch_quarantine",
+        help="Mettre en quarantaine les détections temps-réel du watcher.",
+    )
+    parser.add_argument(
+        "--watch-dry-run",
+        action="store_true",
+        dest="watch_dry_run",
+        help="Mode évaluation pour le watcher : détecte sans quarantine. "
+        "Combine avec --watch-quarantine pour simuler.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
