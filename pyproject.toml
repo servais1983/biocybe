@@ -1,0 +1,195 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biocybe"
+version = "0.2.0"
+description = "Système de cyberdéfense bio-inspiré, modulaire et explicable. Alternative open-source aux EDR commerciaux."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "BioCybe Team" }]
+keywords = ["cybersecurity", "edr", "yara", "malware", "siem", "bio-inspired", "immune-system"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+]
+
+# ---- Dépendances "core" : strict minimum pour scan + daemon ----
+# Doit installer en <30s sur n'importe quelle plateforme.
+# Pas de TF/PyTorch/scikit ici — gros, optionnels, install séparée.
+dependencies = [
+    "pyyaml>=6.0",
+    "psutil>=5.9.0",
+    "requests>=2.27.1",
+    "yara-python>=4.3.0",  # 4.3+ requis pour StringMatch.instances
+    "watchdog>=3.0.0",     # monitoring filesystem real-time (Phase 2.2)
+    "python-json-logger>=2.0.2",
+    "structlog>=23.0.0",
+]
+
+[project.optional-dependencies]
+# Capacités ML : Lymphocytes T, anomalies comportementales, XAI.
+ml = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scikit-learn>=1.3",
+    "shap>=0.42",
+    "lime>=0.2.0.1",
+    "joblib>=1.3",
+]
+# API REST + dashboard pour intégration SOC/SIEM (Phase 2.3).
+web = [
+    "flask>=3.0",
+    "flask-cors>=4.0",
+    "gunicorn>=21.2; sys_platform != 'win32'",
+    "waitress>=3.0; sys_platform == 'win32'",
+    "dash>=2.14",
+    "dash-bootstrap-components>=1.5",
+    "plotly>=5.18",
+    "prometheus-client>=0.19",
+]
+# Analyse fichiers avancée (PE, ELF, types).
+fileanalysis = [
+    "python-magic>=0.4.27",
+    "python-magic-bin>=0.4.14; sys_platform == 'win32'",
+    "pefile>=2023.2.7",
+    "pyelftools>=0.30",
+    "pycryptodome>=3.19",
+]
+# Réseau : analyse paquets, intégration Suricata/Zeek (Phase 2.3+).
+network = [
+    "scapy>=2.5",
+    "dnspython>=2.4",
+    "netifaces>=0.11",
+]
+# Dev : tests, lint, format, audit sécurité.
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.9",
+    "mypy>=1.7",
+    "pip-audit>=2.6",
+    "pre-commit>=3.5",
+    "types-PyYAML",
+    "types-requests",
+]
+# Profil "SOC complet" : tout ce qui sert en prod (sans dev).
+soc = [
+    "biocybe[ml,web,fileanalysis,network]",
+]
+# Tout (pour devs locaux qui veulent tout tester).
+all = [
+    "biocybe[soc,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/servais1983/biocybe"
+Repository = "https://github.com/servais1983/biocybe"
+Issues = "https://github.com/servais1983/biocybe/issues"
+Documentation = "https://github.com/servais1983/biocybe/tree/main/docs"
+Changelog = "https://github.com/servais1983/biocybe/blob/main/CHANGELOG.md"
+
+[project.scripts]
+biocybe = "biocybe.cli:main"
+
+# ---- Setuptools : src-layout, le package est sous src/biocybe ----
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["biocybe*"]
+
+[tool.setuptools.package-data]
+"biocybe" = ["py.typed"]
+
+# ---- Pytest ----
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "slow: tests qui prennent >1s",
+    "integration: tests d'intégration (réseau, filesystem, etc.)",
+    "linux_only: tests qui ne tournent que sur Linux",
+]
+
+# ---- Ruff (linter + formatter) ----
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes
+    "I",           # isort
+    "N",           # naming
+    "UP",          # pyupgrade
+    "B",           # bugbear
+    "S",           # bandit (sécurité)
+    "A",           # builtins shadowing
+    "C4",          # comprehensions
+    "RET",         # returns
+    "SIM",         # simplify
+    "ARG",         # unused args
+    "PTH",         # pathlib over os.path
+    "PL",          # pylint
+    "RUF",         # ruff-specific
+]
+ignore = [
+    "E501",        # line length (laissé au formatter)
+    "PLR0913",     # too many args (sera vrai pour les configs)
+    "PLR2004",     # magic numbers (trop bruyant dans des tests)
+    "S101",        # assert (utilisé en tests)
+    "N806",        # variable in function should be lowercase
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "ARG", "PLR"]
+
+# ---- Mypy ----
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # progressif : on activera plus tard
+ignore_missing_imports = true  # libs externes sans stubs
+files = ["src/biocybe"]
+
+# ---- Coverage ----
+[tool.coverage.run]
+source = ["src/biocybe"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

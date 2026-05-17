@@ -1,59 +1,17 @@
-# BioCybe - Système de cyberdéfense bio-inspiré
-# ===========================================
-# Dépendances requises
+# BioCybe — Dépendances "core"
+# ============================
+# Pour une installation propre, préférer :
+#     pip install -e .                  (core seulement, dev local)
+#     pip install -e ".[soc]"           (profil SOC complet)
+#     pip install -e ".[all]"           (tout, y compris dev)
+#
+# Ce fichier est conservé pour rétro-compatibilité et CI rapide.
+# La source de vérité des dépendances est pyproject.toml.
 
-# Bibliothèques de base
-pyyaml>=6.0        # Traitement des fichiers de configuration YAML
-psutil>=5.9.0      # Monitoring système (CPU, mémoire, processus, réseau)
-requests>=2.27.1   # Requêtes HTTP pour les APIs et mises à jour
-numpy>=1.22.3      # Calculs numériques
-pandas>=1.4.2      # Analyse de données et structures tabulaires
-
-# Détection et sécurité
-yara-python>=4.2.0  # Moteur de règles YARA pour la détection par signatures
-pycryptodome>=3.14.1  # Cryptographie et fonctions de hashing avancées
-python-magic>=0.4.25  # Détection des types de fichiers
-pyelftools>=0.28   # Analyse des fichiers ELF (Linux)
-pefile>=2022.5.30  # Analyse des fichiers PE (Windows)
-
-# Machine Learning et analyse comportementale
-scikit-learn>=1.0.2  # Apprentissage machine et détection d'anomalies
-tensorflow>=2.8.0   # Deep learning pour détection avancée (optionnel)
-# ou tensorflow-cpu pour une version plus légère
-joblib>=1.1.0       # Parallélisation et persistance de modèles
-
-# Interface web et visualisation
-flask>=2.1.1       # Serveur web pour le tableau de bord
-flask-login>=0.6.0 # Authentification pour le tableau de bord
-plotly>=5.7.0      # Visualisation interactive de données
-dash>=2.3.1        # Extension Flask pour tableaux de bord dynamiques
-dash-bootstrap-components>=1.1.0  # Composants CSS pour Dash
-
-# XAI (IA Explicable)
-shap>=0.40.0       # Interprétation des modèles d'apprentissage
-lime>=0.2.0.1      # Interprétation locale des prédictions
-eli5>=0.12.0       # Débogage et explication des modèles d'apprentissage
-
-# Intégration système
-pyinotify>=0.9.6; sys_platform == 'linux'  # Surveillance de fichiers sous Linux
-watchdog>=2.1.7    # Surveillance de fichiers multi-plateforme
-python-iptables>=1.0.0; sys_platform == 'linux'  # Interface iptables pour Linux
-pywin32>=303; sys_platform == 'win32'  # API Windows pour Windows
-pyobjc>=8.5; sys_platform == 'darwin'  # API Objective-C pour macOS
-
-# Réseau et communication
-netifaces>=0.11.0  # Interfaces réseau
-scapy>=2.4.5       # Analyse et manipulation de paquets réseau (optionnel)
-dnspython>=2.2.1   # Résolution et analyse DNS
-websockets>=10.3   # Communication WebSocket pour interface temps réel
-
-# Journalisation et surveillance
-python-json-logger>=2.0.2  # Journalisation au format JSON
-structlog>=21.5.0  # Journalisation structurée
-prometheus-client>=0.14.1  # Exposition de métriques pour Prometheus
-
-# Tests et qualité
-pytest>=7.1.1      # Framework de test
-pytest-cov>=3.0.0  # Couverture de code
-black>=22.3.0      # Formatage de code
-flake8>=4.0.1      # Linter de code
+pyyaml>=6.0
+psutil>=5.9.0
+requests>=2.27.1
+yara-python>=4.3.0
+watchdog>=3.0.0
+python-json-logger>=2.0.2
+structlog>=23.0.0

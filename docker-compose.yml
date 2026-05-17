@@ -1,0 +1,68 @@
+# BioCybe — Déploiement local par docker-compose
+# ===============================================
+# Profil minimal pour démo / dev / petit déploiement SOC.
+# Pour la prod, voir docs/deployment.md (à venir Phase 2.4).
+#
+# Usage :
+#   docker compose up -d              # démarre le daemon BioCybe
+#   docker compose run --rm scanner scan /samples     # scan one-shot
+#   docker compose down               # arrêt
+
+services:
+  # Daemon BioCybe : surveillance continue (cellules actives).
+  biocybe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: biocybe:latest
+    container_name: biocybe
+    restart: unless-stopped
+    # Le daemon est démarré sans sous-commande (= comportement par défaut).
+    command: ["--config", "/opt/biocybe/config/biocybe.yaml"]
+    volumes:
+      - biocybe-quarantine:/opt/biocybe/quarantine
+      - biocybe-db:/opt/biocybe/db
+      - biocybe-logs:/opt/biocybe/logs
+      # Montez ici les dossiers à surveiller (ex. /var/log, /tmp, etc.) en lecture seule
+      # - /var/log:/host/var/log:ro
+    networks:
+      - biocybe
+    # Limites de ressources : un agent de sécurité ne doit jamais OOM l'hôte.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    # Sécurité : pas de privilèges, FS root en lecture seule sauf volumes.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # Service one-shot pour scans ad-hoc.
+  scanner:
+    image: biocybe:latest
+    container_name: biocybe-scanner
+    profiles: ["tools"]   # ne démarre pas par défaut, doit être appelé via `docker compose run`
+    volumes:
+      - biocybe-quarantine:/opt/biocybe/quarantine
+      # Le dossier à scanner sera passé en argument et monté à l'appel.
+    networks:
+      - biocybe
+    entrypoint: ["tini", "--", "biocybe", "scan"]
+    command: ["--help"]
+
+volumes:
+  biocybe-quarantine:
+  biocybe-db:
+  biocybe-logs:
+
+networks:
+  biocybe:
+    driver: bridge

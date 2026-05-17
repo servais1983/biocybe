@@ -9,45 +9,45 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 
-def test_import_src_package():
-    import src  # noqa: F401
-    assert src.__version__
+def test_import_biocybe_package():
+    import biocybe  # noqa: F401
+    assert biocybe.__version__
 
 
 def test_import_core():
-    from src.biocybe_core import BioCybeCore, BiologicalCell, CellMessage
+    from biocybe.biocybe_core import BioCybeCore, BiologicalCell, CellMessage
     assert BioCybeCore and BiologicalCell and CellMessage
 
 
 def test_import_macrophages():
-    from src.macrophages import MacrophageCell, create_cells
+    from biocybe.macrophages import MacrophageCell, create_cells
     assert MacrophageCell and create_cells
 
 
 def test_import_lymphocytes_b():
-    from src.lymphocytes_b import BCell, create_cells
+    from biocybe.lymphocytes_b import BCell, create_cells
     assert BCell and create_cells
 
 
 def test_isolation_stub_raises():
     import pytest
-    from src.isolation import isolate
+    from biocybe.isolation import isolate
     with pytest.raises(NotImplementedError):
         isolate("dummy")
 
 
 def test_neutralization_stub_raises():
     import pytest
-    from src.neutralization import neutralize
+    from biocybe.neutralization import neutralize
     with pytest.raises(NotImplementedError):
         neutralize("dummy")
 
 
 def test_core_instantiable():
-    from src.biocybe_core import BioCybeCore
+    from biocybe.biocybe_core import BioCybeCore
     core = BioCybeCore()
     assert core is not None
     assert hasattr(core, "register_cell")
@@ -56,7 +56,7 @@ def test_core_instantiable():
 
 
 def test_cellmessage_roundtrip():
-    from src.biocybe_core import CellMessage
+    from biocybe.biocybe_core import CellMessage
     msg = CellMessage(msg_type="alert", source="test", payload={"x": 1})
     d = msg.to_dict()
     assert d["type"] == "alert"

@@ -1,0 +1,50 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage*
+htmlcov/
+tests/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# CI / dev tooling
+.github/
+.pre-commit-config.yaml
+
+# Runtime artifacts (re-créés au démarrage)
+biocybe.log
+db/
+logs/
+quarantine/
+demo_samples/
+status/
+models/
+
+# Docs lourdes
+docs/
+
+# Mémoire Claude (dev-only)
+CLAUDE.md

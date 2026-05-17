@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 # Chaîne EICAR reconstruite par fragments pour éviter qu'un éditeur,
 # un AV de poste ou un linter ne flagge ce fichier source comme infecté.
@@ -46,7 +46,7 @@ def working_dir(tmp_path, monkeypatch):
 
 
 def test_eicar_detected_and_quarantined(working_dir):
-    from src.scanner import scan_path
+    from biocybe.scanner import scan_path
 
     # Crée un fichier EICAR dans un sous-dossier scanné
     sample_dir = working_dir / "samples"
@@ -78,7 +78,7 @@ def test_eicar_detected_and_quarantined(working_dir):
 
 
 def test_clean_file_not_flagged(working_dir):
-    from src.scanner import scan_path
+    from biocybe.scanner import scan_path
 
     clean = working_dir / "samples" / "hello.txt"
     clean.parent.mkdir(parents=True)
@@ -94,7 +94,7 @@ def test_clean_file_not_flagged(working_dir):
 
 
 def test_sync_yara_rules_copies_files(working_dir):
-    from src.scanner import sync_yara_rules
+    from biocybe.scanner import sync_yara_rules
 
     copied = sync_yara_rules()
     assert copied >= 1  # au moins eicar.yar

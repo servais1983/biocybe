@@ -9,40 +9,64 @@ BioCybe est un système de cybersécurité open-source inspiré du système immu
 
 ---
 
-## 🚀 Quickstart (ce qui marche aujourd'hui)
+## 🚀 Quickstart
 
-> **Statut** : phase MVP. Le scan one-shot, la détection YARA et la mise en quarantaine sont fonctionnels. Le daemon orchestré démarre avec macrophages + lymphocytes B. Les autres cellules (T, NK, mémoire) sont encore en feuille de route — voir [ROADMAP](#-roadmap).
+> **Statut** : alpha utilisable. Scan one-shot YARA + quarantaine fonctionnels, daemon avec macrophages + lymphocytes B. Cibles déployables : SOC, MSSP, équipes sécurité qui veulent une alternative open-source aux EDR commerciaux.
+> Cellules T (ML anomalies), NK, mémoire immunitaire, API REST, dashboard : voir [Roadmap](#-roadmap).
 
+### Installation (3 options)
+
+**Option A — via pip (recommandé)**
 ```bash
-# 1. Installer les dépendances minimales
-pip install pyyaml psutil yara-python pytest
-
-# 2. Vérifier l'intégrité (8 tests imports + 3 tests scan EICAR)
-python -m pytest tests/ -v
-
-# 3. Scanner un fichier ou un dossier (one-shot)
-python biocybe.py scan ./un_dossier
-
-# 4. Scanner + mettre en quarantaine les détections
-python biocybe.py scan ./un_dossier --quarantine
-
-# 5. Sortie JSON pour intégration scriptée
-python biocybe.py scan ./un_dossier --json
-
-# 6. Démarrer le daemon (macrophages + B-cells actifs, Ctrl+C pour stopper)
-python biocybe.py
+git clone https://github.com/servais1983/biocybe.git
+cd biocybe
+pip install -e ".[soc]"     # profil SOC complet (ML + web + fileanalysis + network)
+# ou : pip install -e .     # core seulement (scan + daemon, < 30 s)
+# ou : pip install -e ".[all]"   # tout, y compris dev tools
+biocybe --help
 ```
 
-Les fichiers détectés sont déplacés vers `quarantine/` avec un manifeste `manifest.json` (chemin original, hash SHA-256, règle déclenchante, horodatage).
+**Option B — via Docker**
+```bash
+docker build -t biocybe:latest .
+docker run --rm -v "$PWD/samples:/samples:ro" biocybe:latest scan /samples
+# ou avec compose pour le daemon :
+docker compose up -d
+```
+
+**Option C — sans installer (dev local)**
+```bash
+pip install -e .            # nécessaire au moins une fois
+python -m biocybe scan ./un_dossier
+python -m pytest tests/ -v
+```
+
+### Usage
+
+```bash
+biocybe scan ./un_dossier                  # scan récursif, rapport texte
+biocybe scan ./un_dossier --quarantine     # + déplacer les détections en quarantaine
+biocybe scan ./un_dossier --json           # sortie machine-readable pour SIEM
+biocybe scan ./un_dossier --no-recursive   # uniquement les fichiers à plat
+biocybe                                    # daemon : surveillance continue (Ctrl+C stop)
+```
+
+Exit code 1 si au moins une menace est détectée — intégrable dans un pipeline CI.
+Les fichiers en quarantaine sont indexés dans `quarantine/manifest.json` (chemin
+original, hash SHA-256, règle déclenchante, horodatage, cellule détectrice).
 
 ## 🗺 Roadmap
 
 | Phase | Statut | Livrable |
 |---|---|---|
 | **0** Déverrouillage | ✅ | Le système démarre sans erreur ; 8 smoke tests verts |
-| **1** MVP démontrable | ✅ | `scan` CLI + détection YARA + quarantaine + tests EICAR end-to-end |
-| **2** Observabilité | ⏳ | Dashboard Dash, explications SHAP/LIME, API REST, Docker |
-| **3** Adaptabilité (R&D) | ⏳ | Lymphocytes T (anomalies ML), mémoire persistante, swarm P2P |
+| **1** MVP démontrable | ✅ | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
+| **2.1** Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS/Python, pre-commit |
+| **2.2** Détection sérieuse | ⏳ | Real-time `watchdog`, feeds IOC abuse.ch, +10k règles YARA communautaires, Lymphocyte T (IsolationForest), `--dry-run`, restore quarantaine |
+| **2.3** Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |
+| **2.4** Hardening production | ⏳ | Quarantaine chiffrée, image distroless + SBOM, limites ressources, benchmark MalwareBazaar |
+
+Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 
 ---
 

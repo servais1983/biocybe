@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- Lint & format ----------
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip && pip install ruff
+      - run: ruff check src tests
+      - run: ruff format --check src tests
+
+  # ---------- Tests : Linux / macOS / Windows × Python 3.10–3.13 ----------
+  test:
+    name: Tests (${{ matrix.os }} / py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        exclude:
+          # yara-python n'a pas toujours de wheel pour les combos exotiques
+          # On exclura ici au cas par cas si nécessaire.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YARA system (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libyara-dev yara
+
+      - name: Install YARA system (macOS)
+        if: runner.os == 'macOS'
+        run: brew install yara
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: pytest tests/ -v --cov=biocybe --cov-report=xml --cov-report=term
+
+      - name: Upload coverage (Linux / py3.12 only)
+        if: runner.os == 'Linux' && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ---------- Security audit ----------
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit declared dependencies
+        run: pip-audit --strict --desc -r requirements.txt || true
+      - name: Audit installed environment
+        run: |
+          pip install -e ".[soc]"
+          pip-audit --strict --desc || true
+
+  # ---------- Build Docker image ----------
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: biocybe:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test image
+        run: |
+          docker run --rm biocybe:ci-${{ github.sha }} --help
+          docker run --rm biocybe:ci-${{ github.sha }} scan --help
