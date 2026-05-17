@@ -16,6 +16,12 @@ import yaml
 import time
 from datetime import datetime
 
+# Force UTF-8 sur stdout/stderr (Windows utilise cp1252 par défaut,
+# qui ne peut pas imprimer le logo ASCII ni les accents des logs).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Ajouter le répertoire parent au path pour les imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -172,23 +178,88 @@ def init_biocybe(config):
         logger.error(f"Erreur lors de l'initialisation du système BioCybe: {e}")
         return None
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="biocybe",
+        description="BioCybe — Système de cyberdéfense bio-inspiré",
+    )
+    parser.add_argument("-c", "--config", default="config/biocybe.yaml",
+                        help="Chemin vers le fichier de configuration")
+    parser.add_argument("--debug", action="store_true",
+                        help="Active le mode debug")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    scan_p = subparsers.add_parser(
+        "scan",
+        help="Scanne un fichier ou un dossier (one-shot, sans démarrer le daemon)",
+    )
+    scan_p.add_argument("path", help="Fichier ou dossier à analyser")
+    scan_p.add_argument("--no-recursive", action="store_true",
+                        help="Ne pas descendre dans les sous-dossiers")
+    scan_p.add_argument("--quarantine", action="store_true",
+                        help="Mettre en quarantaine les fichiers détectés")
+    scan_p.add_argument("--json", action="store_true",
+                        help="Sortie JSON (machine-readable) au lieu du rapport texte")
+
+    return parser
+
+
+def cmd_scan(args) -> int:
+    """Exécute la sous-commande `scan`. Retourne un exit code."""
+    from src.scanner import format_report, scan_path
+
+    try:
+        verdicts = scan_path(
+            args.path,
+            recursive=not args.no_recursive,
+            quarantine=args.quarantine,
+        )
+    except FileNotFoundError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        import json
+        payload = [
+            {
+                "path": str(v.path),
+                "result": v.result.to_dict(),
+                "quarantine": (
+                    {
+                        "id": v.quarantine.quarantine_id,
+                        "stored_filename": v.quarantine.stored_filename,
+                    } if v.quarantine else None
+                ),
+            }
+            for v in verdicts
+        ]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(format_report(verdicts))
+
+    # Exit non-zéro s'il y a au moins une menace (utile pour CI/scripts).
+    return 1 if any(v.is_malicious for v in verdicts) else 0
+
+
 def main():
     """
     Point d'entrée principal du programme.
     """
     global biocybe_core, running
-    
-    # Analyser les arguments de la ligne de commande
-    parser = argparse.ArgumentParser(description="BioCybe - Système de cyberdéfense bio-inspiré")
-    parser.add_argument("-c", "--config", default="config/biocybe.yaml", help="Chemin vers le fichier de configuration")
-    parser.add_argument("--debug", action="store_true", help="Active le mode debug")
+
+    parser = _build_parser()
     args = parser.parse_args()
-    
+
     # Mode debug
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.setLevel(logging.DEBUG)
         logger.debug("Mode debug activé")
+
+    # Sous-commande `scan` : pas besoin du daemon.
+    if args.command == "scan":
+        sys.exit(cmd_scan(args))
     
     # Charger la configuration
     config = load_config(args.config)

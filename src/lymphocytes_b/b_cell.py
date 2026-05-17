@@ -23,7 +23,7 @@ from typing import Dict, List, Any, Callable, Optional, Union, Set, Tuple
 import yara  # Nécessite l'installation de yara-python
 
 # Import des classes du noyau BioCybe
-from biocybe_core import BiologicalCell, CellMessage
+from ..biocybe_core import BiologicalCell, CellMessage
 
 # Configuration du logger
 logger = logging.getLogger("biocybe.b_cell")
@@ -83,25 +83,57 @@ class SignatureDatabase:
             logger.error(f"Erreur lors du chargement de la base de données: {e}")
     
     def _compile_yara_rules(self):
-        """Compile les règles YARA dans le répertoire spécifié"""
+        """Compile les règles YARA dans le répertoire spécifié.
+
+        Tolère les fichiers cassés : si la compilation groupée échoue,
+        on retombe sur une compilation fichier par fichier et on ne
+        garde que les règles qui passent. Un fichier défectueux ne
+        doit jamais désactiver l'ensemble de la détection.
+        """
         try:
-            # Liste des fichiers de règles
             rule_files = []
             for root, _, files in os.walk(self.yara_rules_path):
                 for file in files:
                     if file.endswith((".yar", ".yara")):
                         rule_files.append(os.path.join(root, file))
-            
+
             if not rule_files:
                 logger.warning(f"Aucun fichier de règles YARA trouvé dans {self.yara_rules_path}")
                 return
-            
-            # Compilation des règles
-            filepaths = {f"rule_{i}": path for i, path in enumerate(rule_files)}
-            self.rules = yara.compile(filepaths=filepaths)
-            
-            logger.info(f"Compilation de {len(rule_files)} fichiers de règles YARA")
-        
+
+            # Tentative 1 : compilation groupée (rapide, cas nominal)
+            try:
+                filepaths = {f"rule_{i}": path for i, path in enumerate(rule_files)}
+                self.rules = yara.compile(filepaths=filepaths)
+                logger.info(f"Compilation de {len(rule_files)} fichiers de règles YARA")
+                return
+            except yara.SyntaxError as exc:
+                logger.warning(
+                    "Compilation groupée des règles YARA échouée (%s). "
+                    "Bascule en mode tolérant fichier par fichier.", exc,
+                )
+
+            # Tentative 2 : on garde seulement les fichiers qui compilent
+            valid = {}
+            for i, path in enumerate(rule_files):
+                try:
+                    yara.compile(filepath=path)
+                except yara.SyntaxError as exc:
+                    logger.error("Règle YARA ignorée (%s) : %s", path, exc)
+                    continue
+                valid[f"rule_{i}"] = path
+
+            if not valid:
+                logger.error("Aucune règle YARA valide n'a pu être compilée.")
+                self.rules = None
+                return
+
+            self.rules = yara.compile(filepaths=valid)
+            logger.info(
+                "Compilation de %d/%d fichiers de règles YARA (mode tolérant)",
+                len(valid), len(rule_files),
+            )
+
         except Exception as e:
             logger.error(f"Erreur lors de la compilation des règles YARA: {e}")
     
@@ -216,13 +248,32 @@ class SignatureDatabase:
             if matches:
                 results = []
                 for match in matches:
+                    # yara-python 4.3+ : StringMatch a .identifier + .instances[]
+                    # (chaque instance a .offset + .matched_data)
+                    # yara-python <4.3 : StringMatch a directement .identifier/.offset/.data
+                    strings_info = []
+                    for s in match.strings:
+                        if hasattr(s, "instances"):
+                            for inst in s.instances:
+                                strings_info.append((
+                                    s.identifier,
+                                    inst.offset,
+                                    getattr(inst, "matched_data", b""),
+                                ))
+                        else:
+                            strings_info.append((
+                                s.identifier,
+                                getattr(s, "offset", 0),
+                                getattr(s, "data", b""),
+                            ))
+
                     results.append({
                         "rule": match.rule,
                         "tags": match.tags,
                         "meta": match.meta,
-                        "strings": [(s.identifier, s.offset, s.data) for s in match.strings]
+                        "strings": strings_info,
                     })
-                
+
                 return True, results
             
             return False, []

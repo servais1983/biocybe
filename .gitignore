@@ -1,0 +1,44 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# BioCybe runtime artifacts (générés à l'exécution, ne pas commiter)
+biocybe.log
+db/
+logs/
+models/
+quarantine/
+status/
+templates/
+demo_samples/
+
+# Le dossier rules/yara/ EST commité (règles de référence).
+# Mais db/signatures/yara/ est une copie runtime — ignorée via db/ ci-dessus.

@@ -7,6 +7,45 @@
 
 BioCybe est un système de cybersécurité open-source inspiré du système immunitaire biologique, offrant une alternative transparente, modulaire et éthique aux solutions commerciales fermées.
 
+---
+
+## 🚀 Quickstart (ce qui marche aujourd'hui)
+
+> **Statut** : phase MVP. Le scan one-shot, la détection YARA et la mise en quarantaine sont fonctionnels. Le daemon orchestré démarre avec macrophages + lymphocytes B. Les autres cellules (T, NK, mémoire) sont encore en feuille de route — voir [ROADMAP](#-roadmap).
+
+```bash
+# 1. Installer les dépendances minimales
+pip install pyyaml psutil yara-python pytest
+
+# 2. Vérifier l'intégrité (8 tests imports + 3 tests scan EICAR)
+python -m pytest tests/ -v
+
+# 3. Scanner un fichier ou un dossier (one-shot)
+python biocybe.py scan ./un_dossier
+
+# 4. Scanner + mettre en quarantaine les détections
+python biocybe.py scan ./un_dossier --quarantine
+
+# 5. Sortie JSON pour intégration scriptée
+python biocybe.py scan ./un_dossier --json
+
+# 6. Démarrer le daemon (macrophages + B-cells actifs, Ctrl+C pour stopper)
+python biocybe.py
+```
+
+Les fichiers détectés sont déplacés vers `quarantine/` avec un manifeste `manifest.json` (chemin original, hash SHA-256, règle déclenchante, horodatage).
+
+## 🗺 Roadmap
+
+| Phase | Statut | Livrable |
+|---|---|---|
+| **0** Déverrouillage | ✅ | Le système démarre sans erreur ; 8 smoke tests verts |
+| **1** MVP démontrable | ✅ | `scan` CLI + détection YARA + quarantaine + tests EICAR end-to-end |
+| **2** Observabilité | ⏳ | Dashboard Dash, explications SHAP/LIME, API REST, Docker |
+| **3** Adaptabilité (R&D) | ⏳ | Lymphocytes T (anomalies ML), mémoire persistante, swarm P2P |
+
+---
+
 ## 🧬 Architecture bio-inspirée
 
 BioCybe s'inspire du système immunitaire pour créer une défense en profondeur, adaptative et résiliente. Notre architecture modulaire est composée de "cellules" spécialisées qui travaillent ensemble pour détecter, identifier et neutraliser les menaces.
