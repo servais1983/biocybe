@@ -138,6 +138,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             args.path,
             recursive=not args.no_recursive,
             quarantine=args.quarantine,
+            dry_run=args.dry_run,
         )
     except FileNotFoundError as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
@@ -154,7 +155,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
                         "stored_filename": v.quarantine.stored_filename,
                     }
                     if v.quarantine
-                    else None
+                    else ({"dry_run": True} if v.quarantine_dry_run else None)
                 ),
             }
             for v in verdicts
@@ -162,8 +163,69 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(format_report(verdicts))
+        if args.dry_run and args.quarantine:
+            print(
+                "\n[DRY-RUN actif] aucun fichier n'a été déplacé. "
+                "Retirez --dry-run pour activer la quarantaine."
+            )
 
     return 1 if any(v.is_malicious for v in verdicts) else 0
+
+
+# --- Sous-commande : quarantine ------------------------------------------
+
+
+def cmd_quarantine_list(args: argparse.Namespace) -> int:
+    from .isolation import list_quarantine
+
+    entries = list_quarantine(args.quarantine_dir)
+    if args.json:
+        print(json.dumps(entries, indent=2, ensure_ascii=False))
+        return 0
+
+    if not entries:
+        print("Quarantaine vide.")
+        return 0
+
+    print(f"{len(entries)} entrée(s) en quarantaine :\n")
+    for e in entries:
+        print(f"  ID       : {e['quarantine_id']}")
+        print(f"  Original : {e['original_path']}")
+        print(f"  Raison   : {e['reason']}")
+        print(f"  Date     : {e['quarantined_at']}")
+        print(f"  SHA-256  : {e['sha256']}")
+        print(f"  Stocké   : {e['stored_filename']}")
+        print()
+    return 0
+
+
+def cmd_quarantine_restore(args: argparse.Namespace) -> int:
+    from .isolation import QuarantineIntegrityError, restore_file
+
+    try:
+        dest = restore_file(
+            args.quarantine_id,
+            destination=args.to,
+            quarantine_dir=args.quarantine_dir,
+            verify_hash=not args.no_verify,
+            remove_from_manifest=not args.keep_manifest,
+        )
+    except KeyError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 2
+    except FileNotFoundError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 3
+    except QuarantineIntegrityError as exc:
+        print(f"Intégrité compromise : {exc}", file=sys.stderr)
+        print("Utilisez --no-verify pour forcer (forensique uniquement).", file=sys.stderr)
+        return 4
+    except FileExistsError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 5
+
+    print(f"Fichier restauré : {dest}")
+    return 0
 
 
 # --- Sous-commande par défaut : daemon -----------------------------------
@@ -246,7 +308,46 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_p.add_argument(
         "--quarantine", action="store_true", help="Mettre en quarantaine les fichiers détectés"
     )
+    scan_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="N'effectue aucune action destructive (pas de quarantaine effective). "
+        "Le rapport indique ce qui aurait été fait. Obligatoire en évaluation SOC.",
+    )
     scan_p.add_argument("--json", action="store_true", help="Sortie JSON au lieu du rapport texte")
+
+    # ---------------- quarantine ----------------
+    q_p = subparsers.add_parser(
+        "quarantine",
+        help="Inspecte et gère la quarantaine (list / restore)",
+    )
+    q_sub = q_p.add_subparsers(dest="q_command", required=True)
+
+    q_list = q_sub.add_parser("list", help="Liste les fichiers en quarantaine")
+    q_list.add_argument("--quarantine-dir", default="quarantine", help="Dossier de quarantaine")
+    q_list.add_argument("--json", action="store_true", help="Sortie JSON")
+
+    q_restore = q_sub.add_parser(
+        "restore",
+        help="Restaure un fichier (réversibilité — exigence SOC)",
+    )
+    q_restore.add_argument("quarantine_id", help="ID retourné par `quarantine list` ou le scan")
+    q_restore.add_argument(
+        "--to",
+        default=None,
+        help="Destination personnalisée (défaut : chemin original)",
+    )
+    q_restore.add_argument("--quarantine-dir", default="quarantine")
+    q_restore.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Ne pas vérifier l'intégrité SHA-256 (forensique uniquement, déconseillé)",
+    )
+    q_restore.add_argument(
+        "--keep-manifest",
+        action="store_true",
+        help="Garder l'entrée dans le manifeste après restauration (audit trail)",
+    )
 
     return parser
 
@@ -262,6 +363,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "scan":
         return cmd_scan(args)
+    if args.command == "quarantine":
+        if args.q_command == "list":
+            return cmd_quarantine_list(args)
+        if args.q_command == "restore":
+            return cmd_quarantine_restore(args)
     return cmd_daemon(args)
 
 

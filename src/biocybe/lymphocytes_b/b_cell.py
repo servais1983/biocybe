@@ -253,24 +253,30 @@ class SignatureDatabase:
                     # yara-python 4.3+ : StringMatch a .identifier + .instances[]
                     # (chaque instance a .offset + .matched_data)
                     # yara-python <4.3 : StringMatch a directement .identifier/.offset/.data
+                    # Les bytes matchés sont encodés en hex pour rester JSON-safe
+                    # (l'intégration SIEM doit pouvoir sérialiser le résultat).
                     strings_info = []
                     for s in match.strings:
                         if hasattr(s, "instances"):
                             for inst in s.instances:
+                                raw = getattr(inst, "matched_data", b"") or b""
                                 strings_info.append(
-                                    (
-                                        s.identifier,
-                                        inst.offset,
-                                        getattr(inst, "matched_data", b""),
-                                    )
+                                    {
+                                        "identifier": s.identifier,
+                                        "offset": inst.offset,
+                                        "matched_hex": raw.hex(),
+                                        "matched_length": len(raw),
+                                    }
                                 )
                         else:
+                            raw = getattr(s, "data", b"") or b""
                             strings_info.append(
-                                (
-                                    s.identifier,
-                                    getattr(s, "offset", 0),
-                                    getattr(s, "data", b""),
-                                )
+                                {
+                                    "identifier": s.identifier,
+                                    "offset": getattr(s, "offset", 0),
+                                    "matched_hex": raw.hex(),
+                                    "matched_length": len(raw),
+                                }
                             )
 
                     results.append(

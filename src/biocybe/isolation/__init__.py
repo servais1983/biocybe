@@ -147,6 +147,97 @@ def list_quarantine(
     return _load_manifest(Path(quarantine_dir) / MANIFEST_FILENAME)
 
 
+def get_quarantine_entry(
+    quarantine_id: str,
+    quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
+) -> dict[str, Any] | None:
+    """Retrouve une entrée par son ID, ou None si absente."""
+    for entry in list_quarantine(quarantine_dir):
+        if entry.get("quarantine_id") == quarantine_id:
+            return entry
+    return None
+
+
+class QuarantineIntegrityError(Exception):
+    """Le fichier en quarantaine ne correspond plus à son hash d'origine."""
+
+
+def restore_file(
+    quarantine_id: str,
+    *,
+    destination: str | os.PathLike | None = None,
+    quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
+    verify_hash: bool = True,
+    remove_from_manifest: bool = True,
+) -> Path:
+    """Restaure un fichier mis en quarantaine.
+
+    La réversibilité de la quarantaine est une exigence SOC : sans elle,
+    impossible d'oser activer le mode `--quarantine` en évaluation.
+
+    Args:
+        quarantine_id: ID retourné par `quarantine_file` (présent dans
+            le manifeste).
+        destination: chemin de restauration. Par défaut, le chemin
+            original au moment de la mise en quarantaine.
+        quarantine_dir: dossier racine de quarantaine.
+        verify_hash: si True (défaut), vérifie SHA-256 avant restauration ;
+            lève `QuarantineIntegrityError` si divergence. Désactiver
+            uniquement en cas d'investigation forensique.
+        remove_from_manifest: si True (défaut), retire l'entrée du
+            manifeste après restauration réussie. Mettre False pour
+            garder une trace d'audit (le fichier en quarantaine est
+            quand même retiré).
+
+    Returns:
+        Le chemin où le fichier a été restauré.
+
+    Raises:
+        KeyError: ID inconnu.
+        FileNotFoundError: fichier en quarantaine manquant sur disque.
+        QuarantineIntegrityError: hash divergent et verify_hash=True.
+        FileExistsError: destination occupée.
+    """
+    qdir = Path(quarantine_dir)
+    entry = get_quarantine_entry(quarantine_id, qdir)
+    if entry is None:
+        raise KeyError(f"ID de quarantaine inconnu : {quarantine_id}")
+
+    src = qdir / entry["stored_filename"]
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"Fichier en quarantaine manquant : {src}. "
+            "Le manifeste référence un fichier supprimé manuellement."
+        )
+
+    if verify_hash:
+        current_hash = _sha256_of(src)
+        if current_hash != entry["sha256"]:
+            raise QuarantineIntegrityError(
+                f"Hash divergent pour {quarantine_id} : "
+                f"attendu {entry['sha256']}, observé {current_hash}"
+            )
+
+    dest = Path(destination) if destination else Path(entry["original_path"])
+    if dest.exists():
+        raise FileExistsError(
+            f"Destination déjà occupée : {dest}. Précisez `destination=` pour restaurer ailleurs."
+        )
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dest))
+    logger.warning("Fichier restauré : %s -> %s", src, dest)
+
+    if remove_from_manifest:
+        manifest_path = qdir / MANIFEST_FILENAME
+        manifest = _load_manifest(manifest_path)
+        manifest = [e for e in manifest if e.get("quarantine_id") != quarantine_id]
+        _save_manifest(manifest_path, manifest)
+        logger.info("Entrée %s retirée du manifeste", quarantine_id)
+
+    return dest
+
+
 def isolate(target, level: str = "medium"):
     """Compat : ancienne API (réseau/processus). Pas encore implémentée."""
     raise NotImplementedError(
