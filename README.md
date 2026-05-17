@@ -64,6 +64,13 @@ biocybe intel update                       # 100 derniers échantillons
 biocybe intel update --selector time       # derniers 60 min
 biocybe intel update --selector 1000       # 1000 derniers
 
+# --- Règles YARA communautaires (opt-in) ---
+biocybe intel rules list                   # voir les sources disponibles
+biocybe intel rules update --source signature-base --yes --verify
+# → +733 règles Florian Roth/Neo23x0 actives (APT, ransomware, webshells)
+biocybe intel rules update --yes           # toutes les sources
+biocybe intel rules verify signature-base  # quelles règles compilent ?
+
 # --- Daemon avec real-time monitoring ---
 biocybe --watch /var/log --watch /tmp                      # alert-only
 biocybe --watch /var/log --watch-quarantine                # auto-quarantine
@@ -84,7 +91,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.1** Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS/Python, pre-commit |
 | **2.2.a** Real-time monitoring | ✅ | `--watch` + watchdog + débouncing + anti-boucle |
 | **2.2.b** Threat intel | 🚧 | MalwareBazaar ✅, URLhaus/ThreatFox à venir |
-| **2.2.c** Règles YARA communautaires | ⏳ | Import opt-in Neo23x0/signature-base, YARA-Rules/rules |
+| **2.2.c** Règles YARA communautaires | ✅ | Import opt-in Neo23x0/signature-base (~3000), YARA-Rules/rules (~5000) avec anti zip-slip + anti zip-bomb |
 | **2.2.d** Lymphocyte T (ML anomalies) | ⏳ | IsolationForest sur métriques psutil |
 | **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |

@@ -24,6 +24,17 @@ versioning [SemVer](https://semver.org/lang/fr/).
   `update_signatures_from_malwarebazaar()`. CLI : `biocybe intel update
   [--selector time|100|1000]`. Auth via env `ABUSECH_AUTH_KEY`.
   Indexe par sha256+sha1+md5 (Phase 2.2.b).
+- **Règles YARA communautaires opt-in** : nouveau module
+  `biocybe.intel.rules` qui télécharge et extrait les zipballs GitHub
+  de signature-base (Neo23x0/Florian Roth, ~3000 règles APT/ransomware/
+  webshells) et yara-rules (YARA-Rules project, ~5000 règles).
+  Hardening : limite de taille (50 Mo, anti zip-bomb), validation des
+  noms de membres (anti zip-slip), pas d'exécution. Sortie dans
+  `rules/yara/community/<source>/` automatiquement picked up par BCell
+  via le walk récursif. `verify_source()` compile chaque règle pour
+  rapporter le taux de succès. Test réel signature-base : 746 règles
+  téléchargées, 733 compilent (98%). CLI : `biocybe intel rules
+  list/update/verify` avec `--yes` requis (opt-in explicite) (Phase 2.2.c).
 
 #### Corrigé
 - **`rules/yara/ransomware.yar`** : remplace `pe.sections[].entropy`

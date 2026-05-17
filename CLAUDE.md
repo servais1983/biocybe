@@ -144,7 +144,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | 2.1 — Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS×Python, pyproject PEP 621, pre-commit, CHANGELOG |
 | 2.2.a — Real-time watcher | ✅ | `--watch` daemon, watchdog cross-OS, débouncing, anti-boucle, 6 tests |
 | 2.2.b — Threat intel | 🚧 partiel | MalwareBazaar ✅. À faire : URLhaus, ThreatFox |
-| 2.2.c — Règles YARA communautaires | ⏳ | Import opt-in Neo23x0/signature-base, YARA-Rules/rules |
+| 2.2.c — Règles YARA communautaires | ✅ | signature-base + yara-rules ; 733/746 règles compilent en réel |
 | 2.2.d — Lymphocyte T (ML) | ⏳ | IsolationForest sur métriques psutil + SHAP explainability |
 | 2.2.e — `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | 2.2.f — Fix `ransomware.yar` | ✅ | math.entropy au lieu de pe.entropy, 6 règles actives |

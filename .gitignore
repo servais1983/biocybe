@@ -42,3 +42,11 @@ demo_samples/
 
 # Le dossier rules/yara/ EST commité (règles de référence).
 # Mais db/signatures/yara/ est une copie runtime — ignorée via db/ ci-dessus.
+
+# Règles YARA communautaires téléchargées sur demande (opt-in).
+# Pas commitées pour deux raisons :
+#  - licences variées (signature-base = CC-BY-NC, yara-rules = GPL-2.0)
+#    qui compliqueraient la distribution MIT de BioCybe.
+#  - elles se mettent à jour fréquemment (re-télécharger via
+#    `biocybe intel rules update --yes` plutôt que pinner un instantané).
+rules/yara/community/

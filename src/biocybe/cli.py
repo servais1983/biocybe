@@ -226,6 +226,121 @@ def cmd_intel_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_intel_rules_list(args: argparse.Namespace) -> int:
+    from .intel import list_sources
+
+    sources = list_sources()
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": s.name,
+                        "description": s.description,
+                        "license": s.license,
+                        "url": s.zipball_url,
+                    }
+                    for s in sources
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(f"{len(sources)} source(s) YARA communautaire(s) disponible(s) :\n")
+    for s in sources:
+        print(f"  [{s.name}]")
+        print(f"    {s.description}")
+        print(f"    Licence : {s.license}")
+        print(f"    URL     : {s.zipball_url}")
+        print()
+    print("Utiliser : biocybe intel rules update --source <name>")
+    return 0
+
+
+def cmd_intel_rules_update(args: argparse.Namespace) -> int:
+    from .intel import KNOWN_SOURCES, download_source
+
+    sources_to_update = [args.source] if args.source else list(KNOWN_SOURCES.keys())
+
+    if not args.yes:
+        names = ", ".join(sources_to_update)
+        print(
+            f"Cela va télécharger {len(sources_to_update)} source(s) : {names}\n"
+            "Les règles seront placées dans rules/yara/community/<source>/.\n"
+            "Re-lance avec --yes pour confirmer."
+        )
+        return 1
+
+    results = []
+    for name in sources_to_update:
+        try:
+            res = download_source(name, dest_dir=args.dest)
+            results.append(res)
+            print(
+                f"[{name}] {res.files_extracted} règles ({res.bytes_written / 1024:.0f} Ko), "
+                f"{res.skipped_files} ignorées -> {res.output_dir}"
+            )
+        except Exception as exc:
+            print(f"[{name}] échec : {exc}", file=sys.stderr)
+
+    if args.verify:
+        from .intel import verify_source
+
+        print("\nVérification de la compilation YARA :")
+        for res in results:
+            v = verify_source(res.source, dest_dir=args.dest)
+            ratio = (v.rules_ok / v.total * 100) if v.total else 0
+            print(
+                f"  [{v.source}] {v.rules_ok}/{v.total} règles compilent "
+                f"({ratio:.0f} %), {v.rules_broken} cassées (ignorées par BCell)"
+            )
+    return 0
+
+
+def cmd_intel_rules_verify(args: argparse.Namespace) -> int:
+    from .intel import verify_source
+
+    try:
+        v = verify_source(args.source, dest_dir=args.dest)
+    except FileNotFoundError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        print(
+            "Télécharge d'abord la source : "
+            f"biocybe intel rules update --source {args.source} --yes",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "source": v.source,
+                    "ok": v.rules_ok,
+                    "broken": v.rules_broken,
+                    "total": v.total,
+                    "sample_errors": [{"file": f, "error": e} for f, e in v.sample_errors],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    ratio = (v.rules_ok / v.total * 100) if v.total else 0
+    print(
+        f"Source '{v.source}' : {v.rules_ok}/{v.total} règles compilent "
+        f"({ratio:.0f} %), {v.rules_broken} cassées."
+    )
+    if v.sample_errors:
+        print("\nÉchantillon d'erreurs (les règles cassées sont ignorées par BCell) :")
+        for f, e in v.sample_errors:
+            print(f"  - {f}: {e}")
+    return 0
+
+
 def cmd_quarantine_restore(args: argparse.Namespace) -> int:
     from .isolation import QuarantineIntegrityError, restore_file
 
@@ -435,9 +550,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # ---------------- intel ----------------
     intel_p = subparsers.add_parser(
         "intel",
-        help="Met à jour les signatures depuis les feeds de threat intel",
+        help="Threat intel : signatures hash (abuse.ch) et règles YARA communautaires",
     )
     intel_sub = intel_p.add_subparsers(dest="intel_command", required=True)
+
+    # intel update : alimenté par abuse.ch (anciennement seul)
     intel_up = intel_sub.add_parser(
         "update",
         help="Télécharge les nouveaux IOC depuis abuse.ch MalwareBazaar",
@@ -446,7 +563,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source",
         choices=["malwarebazaar"],
         default="malwarebazaar",
-        help="Source à interroger (autres sources prévues : urlhaus, threatfox)",
+        help="Source à interroger (autres prévues : urlhaus, threatfox)",
     )
     intel_up.add_argument(
         "--selector",
@@ -459,6 +576,48 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dossier de signatures BioCybe (défaut : db/signatures)",
     )
     intel_up.add_argument("--json", action="store_true")
+
+    # intel rules : règles YARA communautaires opt-in (Phase 2.2.c)
+    intel_rules_p = intel_sub.add_parser(
+        "rules",
+        help="Gère les règles YARA communautaires opt-in (signature-base, yara-rules)",
+    )
+    intel_rules_sub = intel_rules_p.add_subparsers(dest="rules_command", required=True)
+
+    rules_list = intel_rules_sub.add_parser("list", help="Liste les sources connues")
+    rules_list.add_argument("--json", action="store_true")
+
+    rules_update = intel_rules_sub.add_parser(
+        "update",
+        help="Télécharge une ou toutes les sources (opt-in : exige --yes)",
+    )
+    rules_update.add_argument(
+        "--source",
+        help="Nom d'une source spécifique (sinon : toutes)",
+    )
+    rules_update.add_argument(
+        "--dest",
+        default="rules/yara/community",
+        help="Dossier de destination (défaut : rules/yara/community)",
+    )
+    rules_update.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirme le téléchargement (obligatoire — opt-in explicite)",
+    )
+    rules_update.add_argument(
+        "--verify",
+        action="store_true",
+        help="Vérifie la compilation après téléchargement",
+    )
+
+    rules_verify = intel_rules_sub.add_parser(
+        "verify",
+        help="Vérifie quelles règles d'une source compilent",
+    )
+    rules_verify.add_argument("source", help="Nom de la source à vérifier")
+    rules_verify.add_argument("--dest", default="rules/yara/community")
+    rules_verify.add_argument("--json", action="store_true")
 
     return parser
 
@@ -479,8 +638,16 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_quarantine_list(args)
         if args.q_command == "restore":
             return cmd_quarantine_restore(args)
-    if args.command == "intel" and args.intel_command == "update":
-        return cmd_intel_update(args)
+    if args.command == "intel":
+        if args.intel_command == "update":
+            return cmd_intel_update(args)
+        if args.intel_command == "rules":
+            if args.rules_command == "list":
+                return cmd_intel_rules_list(args)
+            if args.rules_command == "update":
+                return cmd_intel_rules_update(args)
+            if args.rules_command == "verify":
+                return cmd_intel_rules_verify(args)
     return cmd_daemon(args)
 
 

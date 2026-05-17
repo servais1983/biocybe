@@ -15,9 +15,25 @@ from .abusech import (
     MalwareBazaarClient,
     update_signatures_from_malwarebazaar,
 )
+from .rules import (
+    KNOWN_SOURCES,
+    DownloadResult,
+    VerifyResult,
+    YaraRuleSource,
+    download_source,
+    list_sources,
+    verify_source,
+)
 
 __all__ = [
+    "KNOWN_SOURCES",
     "AbuseChAuthMissing",
+    "DownloadResult",
     "MalwareBazaarClient",
+    "VerifyResult",
+    "YaraRuleSource",
+    "download_source",
+    "list_sources",
     "update_signatures_from_malwarebazaar",
+    "verify_source",
 ]
