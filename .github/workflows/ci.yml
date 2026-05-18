@@ -106,10 +106,34 @@ jobs:
         with:
           context: .
           push: false
+          load: true        # rend l'image dispo dans le daemon local pour `docker run`
           tags: biocybe:ci-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Smoke test image
+      - name: Inspect image
         run: |
-          docker run --rm biocybe:ci-${{ github.sha }} --help
-          docker run --rm biocybe:ci-${{ github.sha }} scan --help
+          docker image ls biocybe:ci-${{ github.sha }}
+          docker inspect biocybe:ci-${{ github.sha }} --format '{{ .Config.Entrypoint }} {{ .Config.Cmd }}'
+      - name: Smoke test image — biocybe --help
+        run: docker run --rm biocybe:ci-${{ github.sha }} --help
+      - name: Smoke test image — biocybe scan --help
+        run: docker run --rm biocybe:ci-${{ github.sha }} scan --help
+      - name: Smoke test image — API healthz (avec --build-arg web)
+        run: |
+          docker build --build-arg BIOCYBE_EXTRAS=web -t biocybe:ci-web-${{ github.sha }} .
+          docker run -d --name biocybe-api -p 8080:8080 \
+            -e BIOCYBE_API_TOKEN=ci-test-token \
+            biocybe:ci-web-${{ github.sha }} api serve --host 0.0.0.0 --port 8080
+          # Attendre que l'API soit ready
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8080/healthz > /dev/null; then
+              echo "API ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8080/healthz | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8080/api/v1/info | grep -q "HTTP 401"
+          curl -sf -H "Authorization: Bearer ci-test-token" http://127.0.0.1:8080/api/v1/info | tee /dev/stderr | grep -q '"api_version":"v1"'
+          docker logs biocybe-api
+          docker stop biocybe-api

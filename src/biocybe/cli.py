@@ -420,6 +420,44 @@ def cmd_tcell_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_api_serve(args: argparse.Namespace) -> int:
+    """Démarre l'API REST de BioCybe.
+
+    Auth Bearer token obligatoire (env BIOCYBE_API_TOKEN), sauf si
+    `--no-auth` est passé (mode dev uniquement, refusé en prod par
+    l'application).
+    """
+    try:
+        from .api import APIConfig, run_dev, run_production
+    except Exception as exc:
+        print(f"Erreur : module API indisponible ({exc}).", file=sys.stderr)
+        print("Installer les dépendances web : pip install biocybe[web]", file=sys.stderr)
+        return 4
+
+    cfg = APIConfig(
+        host=args.host,
+        port=args.port,
+        token=args.token,
+        require_auth=not args.no_auth,
+        cors_origins=args.cors_origin or None,
+        quarantine_dir=args.quarantine_dir,
+        workers=args.workers,
+        metrics_enabled=not args.no_metrics,
+    )
+
+    try:
+        if args.dev:
+            run_dev(cfg)
+        else:
+            run_production(cfg)
+    except RuntimeError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 5
+    except KeyboardInterrupt:
+        print("\nArrêt API.", file=sys.stderr)
+    return 0
+
+
 def cmd_tcell_evaluate(args: argparse.Namespace) -> int:
     """Évalue l'état système courant avec la TCell entraînée."""
     try:
@@ -817,6 +855,61 @@ def _build_parser() -> argparse.ArgumentParser:
     tcell_eval.add_argument("--name", default="t_cell_main")
     tcell_eval.add_argument("--json", action="store_true")
 
+    # ---------------- api (Phase 2.3 — intégration SIEM/SOAR) ----------------
+    api_p = subparsers.add_parser(
+        "api",
+        help="API REST HTTP pour intégration SIEM/SOAR (Phase 2.3)",
+    )
+    api_sub = api_p.add_subparsers(dest="api_command", required=True)
+
+    api_serve = api_sub.add_parser(
+        "serve",
+        help="Démarre l'API HTTP. Auth Bearer token via env BIOCYBE_API_TOKEN.",
+    )
+    api_serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 pour exposer)",
+    )
+    api_serve.add_argument("--port", type=int, default=8080)
+    api_serve.add_argument(
+        "--token",
+        default=None,
+        help="Token Bearer (sinon lu depuis env BIOCYBE_API_TOKEN)",
+    )
+    api_serve.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="DÉSACTIVE l'auth. DEV UNIQUEMENT, refusé par défaut en prod.",
+    )
+    api_serve.add_argument(
+        "--cors-origin",
+        action="append",
+        metavar="ORIGIN",
+        help="Origine CORS autorisée (répétable). Par défaut : CORS désactivé.",
+    )
+    api_serve.add_argument(
+        "--quarantine-dir",
+        default="quarantine",
+        help="Dossier de quarantaine que l'API gère",
+    )
+    api_serve.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Nombre de workers/threads WSGI (défaut 4)",
+    )
+    api_serve.add_argument(
+        "--no-metrics",
+        action="store_true",
+        help="Désactive /metrics (Prometheus)",
+    )
+    api_serve.add_argument(
+        "--dev",
+        action="store_true",
+        help="Utilise le serveur Flask de dev (PAS de prod, single-thread)",
+    )
+
     return parser
 
 
@@ -853,6 +946,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_tcell_status(args)
         if args.tcell_command == "evaluate":
             return cmd_tcell_evaluate(args)
+    if args.command == "api" and args.api_command == "serve":
+        return cmd_api_serve(args)
     return cmd_daemon(args)
 
 

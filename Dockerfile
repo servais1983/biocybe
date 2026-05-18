@@ -89,6 +89,10 @@ COPY --chown=biocybe:biocybe rules/  /home/biocybe/rules/
 # Volumes pour la persistance (à monter en prod : -v biocybe-data:/home/biocybe/db)
 VOLUME ["/home/biocybe/quarantine", "/home/biocybe/db", "/home/biocybe/logs"]
 
+# Port HTTP exposé pour `biocybe api serve` (requiert build avec
+# --build-arg BIOCYBE_EXTRAS=web pour avoir Flask + waitress installés)
+EXPOSE 8080
+
 WORKDIR /home/biocybe
 USER biocybe
 

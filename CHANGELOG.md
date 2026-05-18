@@ -5,7 +5,32 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
-### Phase 2.2 (en cours) : Capacités de détection sérieuses
+### Phase 2.3.a : API REST production-ready (intégration SIEM/SOAR)
+
+#### Ajouté
+- **Nouveau package `biocybe.api`** : Flask app prête pour la prod, montable par n'importe quel WSGI (waitress / gunicorn / uwsgi).
+- **Endpoints REST** :
+    - `GET /healthz` — liveness, sans auth (Kubernetes-style)
+    - `GET /readyz` — readiness (avec auth)
+    - `GET /api/v1/info` — version
+    - `POST /api/v1/scan` — scan un chemin, options `quarantine` et `dry_run`
+    - `GET /api/v1/quarantine` — liste du manifeste
+    - `GET /api/v1/quarantine/<id>` — détail d'une entrée
+    - `POST /api/v1/quarantine/<id>/restore` — restauration avec vérification SHA-256
+    - `GET /metrics` — exposition Prometheus (registry dédié par instance, pas global → multi-app safe)
+- **Auth Bearer token** obligatoire (env `BIOCYBE_API_TOKEN`), comparaison via `hmac.compare_digest` (anti timing attack). Refus de démarrer en prod sans token (`require_auth=True` par défaut).
+- **WSGI prod** : `waitress` sur Windows, `gunicorn` sur Linux/macOS via `run_production()`. Pas de Flask dev server en prod.
+- **Métriques Prometheus** : `biocybe_scan_total{outcome}`, `biocybe_scan_malicious_total`, `biocybe_quarantine_action_total{action}`, `biocybe_scan_duration_seconds` histogramme, `biocybe_api_requests_total{method,endpoint,status}`, `biocybe_quarantine_size` gauge.
+- **CLI** : `biocybe api serve [--host] [--port] [--token] [--no-auth] [--cors-origin] [--workers] [--dev]`. Lazy import de Flask : pas d'erreur si `[web]` pas installé jusqu'à la commande.
+- **Codes HTTP propres** : 401 unauthorized, 400 bad_request, 404 not_found, 409 conflict (restore destination occupée, integrity), 410 gone (fichier quarantaine manquant), 500 internal. Toujours JSON.
+- **Tests d'intégration réels** (`tests/test_api.py`, 20 tests) : Flask TestClient, vraies opérations (EICAR créé → scan → quarantine → list → get → restore), auth full coverage (sans token, token incorrect, header malformé, token correct), validation Prometheus (compteurs incrémentés après scan), validation lifecycle complet.
+- **Démo réelle live** validée localement : waitress + curl → /healthz 200, /api/v1/info 401 sans auth puis 200 avec, /metrics format Prometheus exposition.
+
+#### Corrigé (Dockerfile)
+- **CI Docker** : ajout de `load: true` dans `docker/build-push-action@v5` (buildx ne charge pas l'image dans le daemon Docker local par défaut, donc `docker run biocybe:ci-...` échouait avec "image not found" — explication du smoke test rouge sur les 3 derniers pushs).
+- Smoke test découpé en steps unitaires pour diagnostic : `inspect image`, `biocybe --help`, `biocybe scan --help`, puis test HTTP complet `api serve` + curl healthz/info/auth.
+
+### Phase 2.2 : Capacités de détection sérieuses
 
 #### Ajouté
 - **`biocybe scan --dry-run`** : détecte sans agir, indispensable pour

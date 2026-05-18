@@ -78,6 +78,23 @@ biocybe tcell status                       # info sur le modèle persisté
 biocybe tcell evaluate                     # score l'état système actuel
 # → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
 
+# --- API REST pour intégration SIEM/SOAR ---
+pip install -e ".[web]"                                # une fois : Flask + waitress + Prometheus client
+export BIOCYBE_API_TOKEN="$(openssl rand -hex 32)"     # token Bearer obligatoire en prod
+biocybe api serve --host 0.0.0.0 --port 8080           # waitress (Windows) ou gunicorn (Linux)
+
+# Depuis un client (curl, SIEM, SOAR...) :
+curl http://server:8080/healthz                                       # liveness, pas d'auth
+curl -H "Authorization: Bearer $TOKEN" http://server:8080/api/v1/info
+curl -H "Authorization: Bearer $TOKEN" -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"path": "/uploads", "quarantine": true, "dry_run": false}' \
+     http://server:8080/api/v1/scan
+curl -H "Authorization: Bearer $TOKEN" http://server:8080/api/v1/quarantine
+curl -H "Authorization: Bearer $TOKEN" -X POST \
+     http://server:8080/api/v1/quarantine/<id>/restore
+curl http://server:8080/metrics                                       # Prometheus exposition
+
 # --- Daemon avec real-time monitoring ---
 biocybe --watch /var/log --watch /tmp                      # alert-only
 biocybe --watch /var/log --watch-quarantine                # auto-quarantine
@@ -102,7 +119,9 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.2.d** Lymphocyte T (ML anomalies) | ✅ | IsolationForest sur 13 métriques psutil, persistence joblib, explication z-scores top-features, intégration bus pour scan signature ciblé |
 | **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
-| **2.3** Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |
+| **2.3.a** API REST + Prometheus | ✅ | Flask + waitress/gunicorn, Bearer token auth, `/healthz` `/api/v1/{scan,quarantine,info}` `/metrics`, 20 tests d'intégration |
+| **2.3.b** Webhooks (Slack/syslog) | ⏳ | Notifications sortantes |
+| **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | **2.4** Hardening production | ⏳ | Quarantaine chiffrée, image distroless + SBOM, limites ressources, benchmark MalwareBazaar |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
