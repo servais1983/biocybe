@@ -18,11 +18,11 @@ services:
     container_name: biocybe
     restart: unless-stopped
     # Le daemon est démarré sans sous-commande (= comportement par défaut).
-    command: ["--config", "/opt/biocybe/config/biocybe.yaml"]
+    command: ["--config", "/home/biocybe/config/biocybe.yaml"]
     volumes:
-      - biocybe-quarantine:/opt/biocybe/quarantine
-      - biocybe-db:/opt/biocybe/db
-      - biocybe-logs:/opt/biocybe/logs
+      - biocybe-quarantine:/home/biocybe/quarantine
+      - biocybe-db:/home/biocybe/db
+      - biocybe-logs:/home/biocybe/logs
       # Montez ici les dossiers à surveiller (ex. /var/log, /tmp, etc.) en lecture seule
       # - /var/log:/host/var/log:ro
     networks:
@@ -51,7 +51,7 @@ services:
     container_name: biocybe-scanner
     profiles: ["tools"]   # ne démarre pas par défaut, doit être appelé via `docker compose run`
     volumes:
-      - biocybe-quarantine:/opt/biocybe/quarantine
+      - biocybe-quarantine:/home/biocybe/quarantine
       # Le dossier à scanner sera passé en argument et monté à l'appel.
     networks:
       - biocybe
