@@ -70,6 +70,7 @@ class QuarantineEntry:
     reason: str
     detected_by: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    encrypted: bool = False  # Phase 2.4.b — AES-256-GCM si activé
 
 
 def _load_manifest(manifest_path: Path) -> list[dict[str, Any]]:
@@ -104,6 +105,9 @@ def quarantine_file(
     detected_by: str | None = None,
     quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
     extra: dict[str, Any] | None = None,
+    *,
+    encrypt: bool = False,
+    key: bytes | str | None = None,
 ) -> QuarantineEntry:
     """Déplace un fichier vers la quarantaine et l'enregistre au manifeste.
 
@@ -113,12 +117,21 @@ def quarantine_file(
         detected_by: nom de la cellule qui a déclenché (ex. "b_cell_main").
         quarantine_dir: dossier racine de quarantaine.
         extra: métadonnées libres à joindre.
+        encrypt: si True, le fichier est chiffré AES-256-GCM au repos
+            (Phase 2.4.b). La clé est lue depuis `key` ou env
+            `BIOCYBE_QUARANTINE_KEY`. L'extension du fichier stocké
+            devient `.quarantine.enc`. Le hash SHA-256 reste celui
+            du CLAIR (sécurité non affectée, vérification possible
+            après déchiffrement).
+        key: clé AES (32 bytes binaires ou base64 string). Si None,
+            lu depuis env `BIOCYBE_QUARANTINE_KEY`.
 
     Returns:
         L'entrée créée.
 
     Raises:
         FileNotFoundError: si `file_path` n'existe pas.
+        KeyMissingError: encrypt=True mais pas de clé disponible.
     """
     src = Path(file_path).resolve()
     if not src.is_file():
@@ -130,16 +143,33 @@ def quarantine_file(
     file_hash = _sha256_of(src)
     timestamp = datetime.now()
     qid = f"{timestamp.strftime('%Y%m%d%H%M%S%f')}_{file_hash[:12]}"
-    stored_filename = f"{qid}__{src.name}.quarantine"
-    dest = qdir / stored_filename
-
     size = src.stat().st_size
-    shutil.move(str(src), str(dest))
-    # Retirer les permissions d'exécution (best effort, surtout Linux).
-    try:
-        os.chmod(dest, 0o600)
-    except OSError as exc:
-        logger.debug("chmod sur %s impossible : %s", dest, exc)
+
+    if encrypt:
+        # Chiffrement AES-256-GCM. Le SHA-256 du clair est utilisé en
+        # associated_data pour double sécurité (le fichier ne peut être
+        # déchiffré que si on connaît le hash attendu).
+        from .. import crypto as _crypto
+
+        stored_filename = f"{qid}__{src.name}.quarantine.enc"
+        dest = qdir / stored_filename
+        _crypto.encrypt_file(
+            src,
+            dest,
+            key=key,
+            associated_data=file_hash.encode("ascii"),
+        )
+        # Supprimer le clair (le chiffré l'a remplacé via fichier séparé)
+        src.unlink()
+    else:
+        stored_filename = f"{qid}__{src.name}.quarantine"
+        dest = qdir / stored_filename
+        shutil.move(str(src), str(dest))
+        # Retirer les permissions d'exécution (best effort, surtout Linux).
+        try:
+            os.chmod(dest, 0o600)
+        except OSError as exc:
+            logger.debug("chmod sur %s impossible : %s", dest, exc)
 
     entry = QuarantineEntry(
         quarantine_id=qid,
@@ -151,6 +181,7 @@ def quarantine_file(
         reason=reason,
         detected_by=detected_by,
         extra=extra or {},
+        encrypted=encrypt,
     )
 
     manifest_path = qdir / MANIFEST_FILENAME
@@ -231,6 +262,7 @@ def restore_file(
     quarantine_dir: str | os.PathLike = DEFAULT_QUARANTINE_DIR,
     verify_hash: bool = True,
     remove_from_manifest: bool = True,
+    key: bytes | str | None = None,
 ) -> Path:
     """Restaure un fichier mis en quarantaine.
 
@@ -272,13 +304,7 @@ def restore_file(
             "Le manifeste référence un fichier supprimé manuellement."
         )
 
-    if verify_hash:
-        current_hash = _sha256_of(src)
-        if current_hash != entry["sha256"]:
-            raise QuarantineIntegrityError(
-                f"Hash divergent pour {quarantine_id} : "
-                f"attendu {entry['sha256']}, observé {current_hash}"
-            )
+    is_encrypted = bool(entry.get("encrypted"))
 
     dest = Path(destination) if destination else Path(entry["original_path"])
     if dest.exists():
@@ -287,7 +313,48 @@ def restore_file(
         )
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(src), str(dest))
+
+    if is_encrypted:
+        # Déchiffrement vers la destination. associated_data = sha256
+        # (lié au chiffrement, double sécurité).
+        from .. import crypto as _crypto
+
+        try:
+            _crypto.decrypt_file(
+                src,
+                dest,
+                key=key,
+                associated_data=entry["sha256"].encode("ascii"),
+            )
+        except _crypto.TamperedError as exc:
+            raise QuarantineIntegrityError(
+                f"Déchiffrement de {quarantine_id} échoué : {exc}. "
+                "Clé incorrecte ou fichier chiffré modifié."
+            ) from exc
+
+        # Le fichier en quarantaine reste — supprimer après déchiffrement
+        src.unlink()
+
+        if verify_hash:
+            current_hash = _sha256_of(dest)
+            if current_hash != entry["sha256"]:
+                # Improbable (AES-GCM avec AAD=hash protège déjà) mais
+                # double check pour audit
+                dest.unlink()
+                raise QuarantineIntegrityError(
+                    f"Hash divergent après déchiffrement pour {quarantine_id} : "
+                    f"attendu {entry['sha256']}, observé {current_hash}"
+                )
+    else:
+        if verify_hash:
+            current_hash = _sha256_of(src)
+            if current_hash != entry["sha256"]:
+                raise QuarantineIntegrityError(
+                    f"Hash divergent pour {quarantine_id} : "
+                    f"attendu {entry['sha256']}, observé {current_hash}"
+                )
+        shutil.move(str(src), str(dest))
+
     logger.warning("Fichier restauré : %s -> %s", src, dest)
 
     _fire_notify(

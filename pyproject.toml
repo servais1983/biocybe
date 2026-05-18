@@ -41,6 +41,7 @@ dependencies = [
     "watchdog>=3.0.0",     # monitoring filesystem real-time (Phase 2.2)
     "python-json-logger>=2.0.2",
     "structlog>=23.0.0",
+    "cryptography>=41.0",  # AES-GCM pour quarantaine chiffrée (Phase 2.4.b)
 ]
 
 [project.optional-dependencies]

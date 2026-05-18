@@ -5,6 +5,41 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 2.4.b : Quarantaine chiffrée AES-256-GCM (anti-exfiltration)
+
+#### Ajouté
+- **Nouveau module `biocybe.crypto`** : chiffrement AES-256-GCM des fichiers en quarantaine. Sans la clé, **les payloads malveillants sont irrécupérables même par root** sur la machine.
+- **Format `.quarantine.enc` (magic `BCE1`)** :
+    - 4 octets magic + 1 version + 1 alg id + 12 octets nonce (96-bit random unique par fichier) + 16 octets tag GCM + N octets ciphertext.
+    - Format auto-portant, parseable en 6 lignes Python sans bibliothèque tierce.
+- **AES-256-GCM** (AEAD authentifié) — détecte le tampering du ciphertext, du nonce, et de l'`associated_data`.
+- **Associated Data = SHA-256 du clair** : double sécurité. Un attaquant qui modifierait le manifeste pour pointer un ciphertext différent verrait le déchiffrement échouer.
+- **Pas de PBKDF2/Argon2** : on suppose la clé **gérée extérieurement** (KMS, Vault, env var). Plus simple à raisonner, aligné pratiques SOC modernes. Pour dériver d'une passphrase l'opérateur fait scrypt/argon2 en amont et passe la clé brute (32 bytes).
+- **`biocybe.crypto.generate_key()`** + `key_to_base64()` / `key_from_base64()` + `load_key()` (priorité : arg bytes > arg base64 > env `BIOCYBE_QUARANTINE_KEY`).
+- **Exceptions typées** : `KeyMissingError`, `TamperedError` (= clé invalide OU fichier modifié OU AAD divergent — l'attaquant n'apprend pas lequel).
+- **Intégration `quarantine_file(..., encrypt=True, key=...)`** :
+    - Si `encrypt=True`, le fichier source est chiffré dans `<id>__name.quarantine.enc` et le clair supprimé.
+    - Le `QuarantineEntry` porte un nouveau champ `encrypted: bool`.
+    - Le hash SHA-256 enregistré reste celui du clair → vérification d'intégrité existante fonctionne après déchiffrement.
+- **`restore_file(..., key=...)`** détecte automatiquement les entrées chiffrées et les déchiffre vers la destination. `QuarantineIntegrityError` si tag GCM invalide.
+- **CLI** :
+    - `biocybe crypto generate-key` — base64 sur stdout, warning prod sur stderr ("perdre cette clé = perdre les quarantaines")
+    - `biocybe crypto generate-key --export` — sortie `export BIOCYBE_QUARANTINE_KEY=...`
+- **Cryptography ajouté aux deps core** (≥41) — utilisée aussi par requests pour TLS, donc empreinte nulle.
+
+#### Tests (`tests/test_crypto.py` — 17 tests RÉELS)
+- Bas niveau : `generate_key`, base64 roundtrip, refus de clé trop courte
+- `load_key` priorité bytes > str > env, `KeyMissingError` clair sans clé
+- `encrypt_file` → `decrypt_file` : round-trip exact sur ~22 KB de données
+- Le fichier chiffré contient le magic `BCE1` et NE contient PAS le plaintext
+- **Tampering détecté** : modification d'1 byte du ciphertext → `TamperedError`
+- **Clé incorrecte** : déchiffrement avec une autre clé → `TamperedError`
+- **AAD divergent** : encrypt avec `"context-A"`, decrypt avec `"context-B"` → `TamperedError`
+- `is_encrypted()` détecte le magic
+- **Intégration end-to-end** : `quarantine_file(encrypt=True)` → le fichier stocké contient `BCE1` et pas le payload ; restore avec bonne clé → bytes identiques ; restore avec mauvaise clé → `QuarantineIntegrityError`
+- Activation via env `BIOCYBE_QUARANTINE_KEY` sans key= explicite
+- Régression : le mode non-chiffré (par défaut) reste inchangé
+
 ### Phase 2.4.a : Audit log immuable (compliance SOC2 / ISO 27001)
 
 #### Ajouté

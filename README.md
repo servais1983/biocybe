@@ -78,6 +78,18 @@ biocybe tcell status                       # info sur le modèle persisté
 biocybe tcell evaluate                     # score l'état système actuel
 # → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
 
+# --- Quarantaine chiffrée AES-256-GCM (Phase 2.4.b) ---
+# Génère une clé une fois et stocke-la dans ton secret manager
+export BIOCYBE_QUARANTINE_KEY="$(biocybe crypto generate-key)"
+# Active dans config/biocybe.yaml :
+#   quarantine:
+#     encrypt: true
+# Désormais tout fichier en quarantaine est chiffré au repos.
+# Format .quarantine.enc : magic "BCE1" + nonce + tag GCM + ciphertext.
+# Le déchiffrement à la restauration vérifie le tag (anti-tampering).
+# Sans la clé, les fichiers en quarantaine sont irrécupérables —
+# y compris pour root sur la machine !
+
 # --- Audit log immuable (compliance SOC2 / ISO 27001) ---
 # Active dans config/biocybe.yaml :
 #   audit:
@@ -149,7 +161,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.3.b** Webhooks Slack/syslog/HTTP | ✅ | NotifierManager avec failover, retry exp backoff, rate limit anti-storm, hook automatique sur quarantaine/détection RT/anomalie TCell, RFC 5424 syslog, 19 tests |
 | **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | **2.4.a** Audit log immuable | ✅ | JSONL append-only + chaîne SHA-256 tamper-evident, `audit show/verify`, intégré quarantine/restore, 12 tests (tampering, swap, suppression détectés) |
-| **2.4.b** Quarantaine chiffrée AES-GCM | ⏳ | Fichiers malveillants non lisibles même par root |
+| **2.4.b** Quarantaine chiffrée AES-256-GCM | ✅ | Format BCE1 (magic+nonce+tag+ciphertext), AAD=SHA-256 du clair (double sécurité), clé via env `BIOCYBE_QUARANTINE_KEY` ou KMS, `biocybe crypto generate-key`, 17 tests (tampering ciphertext/header/aad/clé tous détectés) |
 | **2.4.c** Image distroless + SBOM | ⏳ | Surface attaque minimale, supply chain auditable |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.

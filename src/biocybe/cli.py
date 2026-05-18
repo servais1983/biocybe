@@ -440,6 +440,41 @@ def _setup_audit_log_from_config(config: dict) -> None:
         logger.error("Audit log non activé : %s", exc)
 
 
+def cmd_crypto_generate_key(args: argparse.Namespace) -> int:
+    """Génère une clé AES-256 aléatoire encodée base64.
+
+    Usage typique :
+        export BIOCYBE_QUARANTINE_KEY="$(biocybe crypto generate-key)"
+    """
+    from .crypto import generate_key, key_to_base64
+
+    key = generate_key()
+    b64 = key_to_base64(key)
+    if args.json:
+        print(json.dumps({"key_base64": b64, "key_size_bytes": len(key)}))
+    elif args.export:
+        print(f"export BIOCYBE_QUARANTINE_KEY={b64}")
+    else:
+        print(b64)
+        print(
+            "\n# Cette clé chiffrera tes quarantaines en AES-256-GCM.",
+            file=sys.stderr,
+        )
+        print(
+            "# Conserve-la dans un secret manager (Vault, AWS Secrets Manager…) :",
+            file=sys.stderr,
+        )
+        print(
+            "# si tu la perds, les fichiers en quarantaine deviennent IRRÉCUPÉRABLES.",
+            file=sys.stderr,
+        )
+        print(
+            f"# Exporte via : export {('BIOCYBE_QUARANTINE_KEY')}=...",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def cmd_audit_show(args: argparse.Namespace) -> int:
     """Affiche les N dernières entrées d'audit."""
     from . import audit as _audit
@@ -1194,6 +1229,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     audit_verify.add_argument("--path", default="logs/audit.jsonl")
 
+    # ---------------- crypto (Phase 2.4.b) ----------------------------------
+    crypto_p = subparsers.add_parser(
+        "crypto",
+        help="Outillage clés / chiffrement AES-256-GCM pour la quarantaine",
+    )
+    crypto_sub = crypto_p.add_subparsers(dest="crypto_command", required=True)
+
+    gen_key = crypto_sub.add_parser(
+        "generate-key",
+        help="Génère une clé AES-256 base64 (à mettre en BIOCYBE_QUARANTINE_KEY)",
+    )
+    gen_key.add_argument(
+        "--export",
+        action="store_true",
+        help="Sortie au format `export BIOCYBE_QUARANTINE_KEY=...`",
+    )
+    gen_key.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -1242,6 +1295,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_audit_show(args)
         if args.audit_command == "verify":
             return cmd_audit_verify(args)
+    if args.command == "crypto" and args.crypto_command == "generate-key":
+        return cmd_crypto_generate_key(args)
     return cmd_daemon(args)
 
 
