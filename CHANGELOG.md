@@ -5,6 +5,40 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 2.3.b : Notifications sortantes Slack / syslog / webhook
+
+#### Ajouté
+- **Nouveau package `biocybe.notify`** : transports sortants vers SIEM/SOAR/chat ops.
+- **3 transports** :
+    - `SlackNotifier` — Incoming Webhook HTTPS, message formaté avec couleur par sévérité, fields auto-extraits du payload, channel/username configurables.
+    - `SyslogNotifier` — RFC 5424 UDP ou TCP, facility local0 par défaut, STRUCTURED-DATA avec payload JSON intégré (compatible Splunk, Elastic, QRadar, Sentinel, rsyslog…).
+    - `WebhookNotifier` — POST JSON vers URL arbitraire (n8n, Zapier, Cortex XSOAR, scripts custom), headers configurables, refus HTTP non chiffré sauf opt-in.
+- **`NotifierManager`** orchestrateur :
+    - **Failure isolation** : un notifier qui plante n'empêche pas les autres → on ne perd jamais une alerte critique parce que Slack hiccupe.
+    - **Retry exponential backoff** (3 tentatives × 0.5/1/2 s).
+    - **Rate limiting** par notifier (60 events/min par défaut, fenêtre glissante) → anti-storm SOC quand un ransomware déclenche 1000 alertes/sec.
+    - **Async** via `ThreadPoolExecutor` → la détection n'attend jamais le réseau.
+    - **Stats par notifier** : `sent`, `failed`, `rate_limited`, `last_error`, timestamps.
+- **`build_from_config(dict)`** : parsing YAML standard avec substitution de variables d'environnement (`${SLACK_WEBHOOK_URL}` etc.). Filtrage par `min_severity` par notifier.
+- **Intégration automatique au pipeline** via un **hook isolation** non couplant :
+    - `quarantine_file()` → notify `quarantine_created` (warning)
+    - `restore_file()` → notify `quarantine_restored` (notice)
+    - `FileSystemWatcher` détection real-time → notify `realtime_detection` (warning/error selon sévérité YARA)
+    - `TCell._maybe_alert()` → notify `behavioral_anomaly` (warning)
+    - Le hook est tolérant aux exceptions : un échec de notification ne casse JAMAIS la quarantaine ni le scan.
+- **CLI** :
+    - `biocybe notify list [--json]` — voir ce qui est configuré
+    - `biocybe notify test [--severity warning] [--message ...]` — envoi sync à tous les notifiers, rapport ok/failed par notifier
+- **Daemon** : `cli._build_notifier_manager_from_config(config)` branche tout au démarrage, shutdown propre à l'arrêt.
+
+#### Tests (`tests/test_notify.py` — 19 tests)
+- Slack : refuse HTTP non chiffré, payload bien formé, échec HTTP → `NotifyError`
+- **Syslog : vrai socket UDP local** dans un thread, valide format RFC 5424 (`<132>1 ts hostname biocybe-test - quarantine_created [sd] msg`), TCP unreachable → `NotifyError`
+- Webhook : POST JSON, headers custom, refus scheme invalide
+- Manager : failover (notifier cassé n'empêche pas les OK), filtres severity par notifier, rate limit drops bien les overflow
+- `build_from_config` : Slack+syslog, substitution `${ENV_VAR}`, skip silencieux des configs invalides
+- **Hook isolation end-to-end** : `quarantine_file()` déclenche bien le hook ; un hook qui plante ne casse pas la quarantaine
+
 ### Phase 2.3.a : API REST production-ready (intégration SIEM/SOAR)
 
 #### Ajouté

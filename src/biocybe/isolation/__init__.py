@@ -30,6 +30,33 @@ DEFAULT_QUARANTINE_DIR = "quarantine"
 MANIFEST_FILENAME = "manifest.json"
 
 
+# Hook de notification optionnel : callable[Event] qui sera appelé
+# si défini par `set_notifier(...)`. Permet à d'autres modules
+# (notamment biocybe.notify.NotifierManager) de capter les événements
+# sans coupler isolation/ à notify/.
+_notify_hook = None
+
+
+def set_notify_hook(hook) -> None:
+    """Installe un callback `hook(event)` appelé pour chaque action.
+
+    `hook` doit être tolérant aux exceptions — un échec de notification
+    ne doit JAMAIS empêcher la quarantaine de se faire.
+    """
+    global _notify_hook
+    _notify_hook = hook
+
+
+def _fire_notify(kind: str, severity: str, title: str, message: str, payload: dict) -> None:
+    """Appelle le hook si défini, en avalant toute exception."""
+    if _notify_hook is None:
+        return
+    try:
+        _notify_hook(kind=kind, severity=severity, title=title, message=message, payload=payload)
+    except Exception as exc:
+        logger.error("Notify hook a levé une exception : %s", exc)
+
+
 @dataclass
 class QuarantineEntry:
     """Une entrée du manifeste de quarantaine."""
@@ -137,6 +164,21 @@ def quarantine_file(
         dest,
         reason,
     )
+
+    _fire_notify(
+        kind="quarantine_created",
+        severity="warning",
+        title=f"Quarantaine : {src.name}",
+        message=f"Fichier malveillant déplacé vers {dest.name} ({reason})",
+        payload={
+            "original_path": str(src),
+            "quarantine_id": qid,
+            "sha256": file_hash,
+            "reason": reason,
+            "detected_by": detected_by,
+            **(extra or {}),
+        },
+    )
     return entry
 
 
@@ -227,6 +269,18 @@ def restore_file(
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dest))
     logger.warning("Fichier restauré : %s -> %s", src, dest)
+
+    _fire_notify(
+        kind="quarantine_restored",
+        severity="notice",
+        title=f"Restauration : {dest.name}",
+        message=f"Fichier {quarantine_id} restauré vers {dest}",
+        payload={
+            "quarantine_id": quarantine_id,
+            "restored_to": str(dest),
+            "verified_hash": verify_hash,
+        },
+    )
 
     if remove_from_manifest:
         manifest_path = qdir / MANIFEST_FILENAME

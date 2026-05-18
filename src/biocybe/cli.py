@@ -420,6 +420,148 @@ def cmd_tcell_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_notifier_manager_from_config(config: dict):
+    """Construit un NotifierManager depuis `config.notify` et le branche
+    en hook isolation. Retourne (manager, count) ou (None, 0)."""
+    notify_cfg = (config or {}).get("notify") or {}
+    if not notify_cfg:
+        return None, 0
+    try:
+        from .isolation import set_notify_hook
+        from .notify import build_from_config
+    except Exception as exc:
+        logger.warning("Notifier non disponible : %s", exc)
+        return None, 0
+
+    mgr = build_from_config(notify_cfg)
+    if not mgr.notifiers:
+        return mgr, 0
+
+    # Adapte le hook isolation (kwargs string) -> Event typé
+    from .notify import Event, EventKind, Severity
+
+    def _hook(kind: str, severity: str, title: str, message: str, payload: dict) -> None:
+        try:
+            ek = EventKind(kind)
+        except ValueError:
+            ek = EventKind.SYSTEM
+        try:
+            sev = Severity(severity)
+        except ValueError:
+            sev = Severity.INFO
+        mgr.notify(Event(kind=ek, severity=sev, title=title, message=message, payload=payload))
+
+    set_notify_hook(_hook)
+    return mgr, len(mgr.notifiers)
+
+
+def cmd_notify_test(args: argparse.Namespace) -> int:
+    """Envoie un Event de test à tous les notifiers configurés.
+
+    Charge la config YAML (idem daemon), construit le NotifierManager,
+    envoie un event synchrone, affiche le rapport (qui a OK / failed).
+    """
+    config = _load_config(args.config) or {}
+    notify_cfg = config.get("notify") or {}
+
+    if not notify_cfg:
+        print(
+            "Aucune section `notify:` dans la config. Exemple :\n"
+            "  notify:\n"
+            "    slack:\n"
+            "      webhook_url: https://hooks.slack.com/services/...\n"
+            "      min_severity: warning",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        from .notify import Event, EventKind, NotifierManager, Severity, build_from_config
+    except Exception as exc:
+        print(f"Module notify indisponible : {exc}", file=sys.stderr)
+        return 4
+
+    mgr: NotifierManager = build_from_config(notify_cfg)
+    if not mgr.notifiers:
+        print(
+            "Aucun notifier configuré (vérifie webhook_url / host / env vars).",
+            file=sys.stderr,
+        )
+        return 3
+
+    print(f"Test des notifiers configurés ({len(mgr.notifiers)}) :")
+    for n in mgr.notifiers:
+        print(f"  - {n.name} (min_severity={n.min_severity.value})")
+
+    severity_str = (args.severity or "warning").lower()
+    try:
+        sev = Severity(severity_str)
+    except ValueError:
+        print(f"Severity inconnue : {severity_str}", file=sys.stderr)
+        return 2
+
+    event = Event(
+        kind=EventKind.SYSTEM,
+        severity=sev,
+        title="BioCybe notify test",
+        message=args.message or "Message de test envoyé via `biocybe notify test`.",
+        source="cli.notify.test",
+        payload={"test": True, "host": __import__("socket").gethostname()},
+    )
+    print(f"\nEnvoi event de test (severity={sev.value})...")
+    results = mgr.notify_sync(event)
+    print("\nRésultats :")
+    any_failure = False
+    for name, status in results.items():
+        marker = (
+            "OK "
+            if status == "ok"
+            else "ERR"
+            if status.startswith(("failed", "unexpected"))
+            else "-- "
+        )
+        print(f"  [{marker}] {name}: {status}")
+        if marker == "ERR":
+            any_failure = True
+    mgr.shutdown()
+    return 1 if any_failure else 0
+
+
+def cmd_notify_list(args: argparse.Namespace) -> int:
+    """Liste les notifiers actuellement configurés."""
+    config = _load_config(args.config) or {}
+    notify_cfg = config.get("notify") or {}
+
+    if not notify_cfg:
+        print("Aucune section `notify:` dans la config.")
+        return 0
+
+    try:
+        from .notify import build_from_config
+    except Exception as exc:
+        print(f"Module notify indisponible : {exc}", file=sys.stderr)
+        return 4
+
+    mgr = build_from_config(notify_cfg)
+    if not mgr.notifiers:
+        print("Section `notify:` présente mais aucun notifier valide configuré.")
+        print("Vérifie : webhook_url / host définis et atteignables.")
+        return 0
+
+    if args.json:
+        print(
+            json.dumps(
+                [{"name": n.name, "min_severity": n.min_severity.value} for n in mgr.notifiers],
+                indent=2,
+            )
+        )
+    else:
+        print(f"{len(mgr.notifiers)} notifier(s) configuré(s) :")
+        for n in mgr.notifiers:
+            print(f"  - {n.name:10} min_severity={n.min_severity.value}")
+    return 0
+
+
 def cmd_api_serve(args: argparse.Namespace) -> int:
     """Démarre l'API REST de BioCybe.
 
@@ -575,6 +717,15 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     if not _core:
         return 1
 
+    # Phase 2.3.b : wire-up des notifiers depuis config.notify
+    notify_mgr, notifier_count = _build_notifier_manager_from_config(config)
+    if notifier_count:
+        logger.info(
+            "%d notifier(s) sortants actifs : %s",
+            notifier_count,
+            ", ".join(n.name for n in notify_mgr.notifiers),
+        )
+
     logger.info("Démarrage du système BioCybe...")
     _core.start()
 
@@ -633,6 +784,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         if _core and _core.active:
             logger.info("Arrêt du système BioCybe...")
             _core.stop()
+        if notify_mgr is not None:
+            try:
+                notify_mgr.shutdown(wait=False)
+            except Exception:
+                pass
         logger.info("Système BioCybe arrêté")
 
     return 0
@@ -910,6 +1066,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Utilise le serveur Flask de dev (PAS de prod, single-thread)",
     )
 
+    # ---------------- notify (Phase 2.3.b — webhooks sortants) ---------------
+    notify_p = subparsers.add_parser(
+        "notify",
+        help="Notifications sortantes : Slack / syslog / webhook générique",
+    )
+    notify_sub = notify_p.add_subparsers(dest="notify_command", required=True)
+
+    notify_list = notify_sub.add_parser(
+        "list", help="Liste les notifiers configurés dans la config YAML"
+    )
+    notify_list.add_argument("--json", action="store_true")
+
+    notify_test = notify_sub.add_parser(
+        "test", help="Envoie un event de test à tous les notifiers configurés"
+    )
+    notify_test.add_argument(
+        "--severity",
+        default="warning",
+        choices=["debug", "info", "notice", "warning", "error", "critical"],
+        help="Sévérité de l'event de test (défaut warning)",
+    )
+    notify_test.add_argument("--message", default=None, help="Message personnalisé")
+
     return parser
 
 
@@ -948,6 +1127,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_tcell_evaluate(args)
     if args.command == "api" and args.api_command == "serve":
         return cmd_api_serve(args)
+    if args.command == "notify":
+        if args.notify_command == "list":
+            return cmd_notify_list(args)
+        if args.notify_command == "test":
+            return cmd_notify_test(args)
     return cmd_daemon(args)
 
 

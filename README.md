@@ -78,6 +78,22 @@ biocybe tcell status                       # info sur le modèle persisté
 biocybe tcell evaluate                     # score l'état système actuel
 # → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
 
+# --- Notifications sortantes (Slack / syslog / webhook) ---
+# Configure dans config/biocybe.yaml :
+#   notify:
+#     slack:
+#       webhook_url: https://hooks.slack.com/services/...
+#       min_severity: warning
+#     syslog:
+#       host: siem.local
+#       port: 514
+#       protocol: udp
+#       min_severity: info
+biocybe notify list                        # liste les notifiers configurés
+biocybe notify test --severity warning     # envoie un event de test
+# Au runtime : tout `quarantine_file()`, alerte temps-réel watcher,
+# alerte comportementale TCell est automatiquement notifiée.
+
 # --- API REST pour intégration SIEM/SOAR ---
 pip install -e ".[web]"                                # une fois : Flask + waitress + Prometheus client
 export BIOCYBE_API_TOKEN="$(openssl rand -hex 32)"     # token Bearer obligatoire en prod
@@ -120,7 +136,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
 | **2.3.a** API REST + Prometheus | ✅ | Flask + waitress/gunicorn, Bearer token auth, `/healthz` `/api/v1/{scan,quarantine,info}` `/metrics`, 20 tests d'intégration |
-| **2.3.b** Webhooks (Slack/syslog) | ⏳ | Notifications sortantes |
+| **2.3.b** Webhooks Slack/syslog/HTTP | ✅ | NotifierManager avec failover, retry exp backoff, rate limit anti-storm, hook automatique sur quarantaine/détection RT/anomalie TCell, RFC 5424 syslog, 19 tests |
 | **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | **2.4** Hardening production | ⏳ | Quarantaine chiffrée, image distroless + SBOM, limites ressources, benchmark MalwareBazaar |
 

@@ -298,6 +298,27 @@ class FileSystemWatcher:
                     ev.result.malware_family or "inconnue",
                     ev.result.severity,
                 )
+                # Notification non bloquante via le hook isolation
+                try:
+                    from .isolation import _fire_notify
+
+                    rule_names = [m.get("rule") for m in ev.result.matched_rules if m.get("rule")]
+                    _fire_notify(
+                        kind="realtime_detection",
+                        severity="warning" if ev.result.severity in ("low", "medium") else "error",
+                        title=f"Détection temps-réel : {Path(path).name}",
+                        message=f"YARA={','.join(rule_names) or 'unknown'} "
+                        f"famille={ev.result.malware_family or 'inconnue'}",
+                        payload={
+                            "file_path": path,
+                            "family": ev.result.malware_family,
+                            "severity": ev.result.severity,
+                            "rules": rule_names,
+                            "detected_by": self.cell.name,
+                        },
+                    )
+                except Exception:
+                    pass  # ne JAMAIS faire crasher le watcher sur une notif
 
                 if self.quarantine_on_match:
                     if self.dry_run:

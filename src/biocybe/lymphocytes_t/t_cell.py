@@ -549,6 +549,28 @@ class TCell(BiologicalCell):
             priority=4,
         )
 
+        # Notification externe via le hook isolation (capté par le
+        # NotifierManager si configuré).
+        try:
+            from ..isolation import _fire_notify
+
+            top = explanation.top_features[0] if explanation.top_features else {}
+            _fire_notify(
+                kind="behavioral_anomaly",
+                severity="warning",
+                title=f"Anomalie comportementale ({self.name})",
+                message=explanation.human_summary().split("\n")[0],
+                payload={
+                    "anomaly_score": explanation.anomaly_score,
+                    "top_feature": top.get("name"),
+                    "top_z_score": top.get("z_score"),
+                    "detected_by": self.name,
+                    "explanation": explanation.to_dict(),
+                },
+            )
+        except Exception:
+            pass  # ne jamais casser la détection sur un échec notif
+
     def _handle_collect_request(self, message: CellMessage) -> None:
         """Permet à un autre module de forcer une mesure ponctuelle."""
         sample = self.collect_one()
