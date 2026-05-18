@@ -78,6 +78,16 @@ biocybe tcell status                       # info sur le modèle persisté
 biocybe tcell evaluate                     # score l'état système actuel
 # → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
 
+# --- Audit log immuable (compliance SOC2 / ISO 27001) ---
+# Active dans config/biocybe.yaml :
+#   audit:
+#     enabled: true
+#     path: logs/audit.jsonl
+biocybe audit show --limit 50           # 50 dernières entrées
+biocybe audit show --action quarantine_created --json
+biocybe audit verify                    # vérifie la chaîne SHA-256
+# → "AUDIT LOG ALTÉRÉ : seq=2 self_hash invalide" si tampering détecté
+
 # --- Notifications sortantes (Slack / syslog / webhook) ---
 # Configure dans config/biocybe.yaml :
 #   notify:
@@ -138,7 +148,9 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.3.a** API REST + Prometheus | ✅ | Flask + waitress/gunicorn, Bearer token auth, `/healthz` `/api/v1/{scan,quarantine,info}` `/metrics`, 20 tests d'intégration |
 | **2.3.b** Webhooks Slack/syslog/HTTP | ✅ | NotifierManager avec failover, retry exp backoff, rate limit anti-storm, hook automatique sur quarantaine/détection RT/anomalie TCell, RFC 5424 syslog, 19 tests |
 | **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
-| **2.4** Hardening production | ⏳ | Quarantaine chiffrée, image distroless + SBOM, limites ressources, benchmark MalwareBazaar |
+| **2.4.a** Audit log immuable | ✅ | JSONL append-only + chaîne SHA-256 tamper-evident, `audit show/verify`, intégré quarantine/restore, 12 tests (tampering, swap, suppression détectés) |
+| **2.4.b** Quarantaine chiffrée AES-GCM | ⏳ | Fichiers malveillants non lisibles même par root |
+| **2.4.c** Image distroless + SBOM | ⏳ | Surface attaque minimale, supply chain auditable |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 

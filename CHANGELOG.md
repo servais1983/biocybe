@@ -5,6 +5,36 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 2.4.a : Audit log immuable (compliance SOC2 / ISO 27001)
+
+#### Ajouté
+- **Nouveau module `biocybe.audit`** : journal append-only au format JSONL avec **chaîne de hash SHA-256** anti-tampering. Chaque entrée porte son `self_hash` (SHA-256 du JSON canonique sans le hash lui-même) et le `prev_hash` de la ligne précédente. Toute modification, suppression, insertion ou réordonnancement casse la chaîne et est détectable.
+- **`AuditLog.append(action, actor, outcome, details)`** :
+    - écriture atomique côté process (lock + flush + fsync best-effort)
+    - permissions 600 sur le fichier (Linux/macOS)
+    - reprise propre après restart : lit la dernière ligne pour récupérer seq+hash
+- **`AuditLog.verify()`** : recompile et vérifie la chaîne complète, retourne `(ok, errors)`. Détecte :
+    - lignes modifiées (self_hash divergent)
+    - lignes supprimées (trou dans seq monotone)
+    - lignes échangées (prev_hash incorrect)
+    - lignes insérées (rupture seq)
+- **Singleton optionnel** `set_default()` / `audit()` : permet aux modules métier d'écrire sans coupler la décision d'activation.
+- **Intégration automatique** : `quarantine_file()` et `restore_file()` écrivent dans le log si activé.
+- **Activation** via `audit.enabled: true` dans `config/biocybe.yaml` — opt-in, no-op silencieux sinon.
+- **CLI** :
+    - `biocybe audit show [--limit N] [--action TYPE] [--json]`
+    - `biocybe audit verify` — exit 2 si tampering détecté
+- **Démo live validée** : 3 entrées écrites, `verify` OK ; après modification de la ligne 2 → `verify` détecte `seq=2 : self_hash invalide (2dd711cb5bba... ≠ 0b260527ce9d...)` avec localisation exacte.
+
+#### Tests (`tests/test_audit.py` — 12 tests RÉELS)
+- write/read disque vrai, format JSONL parseable
+- séquence monotone et continue
+- `verify` détecte ligne **modifiée**, **supprimée**, **échangée**
+- reprise après restart : seq et prev_hash continus
+- **concurrence** : 8 threads × 20 append simultanés → 160 entrées uniques, chaîne valide
+- `audit()` tolère un `AuditLog` cassé (jamais fatal sur le métier)
+- intégration `quarantine_file()` → entrée audit réelle avec quarantine_id correct
+
 ### Phase 2.3.b : Notifications sortantes Slack / syslog / webhook
 
 #### Ajouté

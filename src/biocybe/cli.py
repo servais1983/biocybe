@@ -420,6 +420,90 @@ def cmd_tcell_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _setup_audit_log_from_config(config: dict) -> None:
+    """Active l'audit log immuable si `audit.enabled: true` en config."""
+    audit_cfg = (config or {}).get("audit") or {}
+    if not audit_cfg.get("enabled"):
+        return
+    try:
+        from . import audit as _audit
+
+        path = audit_cfg.get("path", "logs/audit.jsonl")
+        _audit.set_default(_audit.AuditLog(path))
+        _audit.audit(
+            "system_startup",
+            actor="biocybe.cli",
+            details={"version": _audit.__name__, "config_path": path},
+        )
+        logger.info("Audit log immuable activé : %s", path)
+    except Exception as exc:
+        logger.error("Audit log non activé : %s", exc)
+
+
+def cmd_audit_show(args: argparse.Namespace) -> int:
+    """Affiche les N dernières entrées d'audit."""
+    from . import audit as _audit
+
+    log = _audit.AuditLog(args.path)
+    entries = log.read_all()
+    if args.action:
+        entries = [e for e in entries if e.action == args.action]
+    if args.limit and args.limit > 0:
+        entries = entries[-args.limit :]
+
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "seq": e.seq,
+                        "ts": e.ts,
+                        "actor": e.actor,
+                        "action": e.action,
+                        "outcome": e.outcome,
+                        "details": e.details,
+                        "prev_hash": e.prev_hash,
+                        "self_hash": e.self_hash,
+                    }
+                    for e in entries
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if not entries:
+        print("Audit log vide.")
+        return 0
+
+    print(f"{len(entries)} entrée(s) :")
+    for e in entries:
+        det = json.dumps(e.details, ensure_ascii=False)
+        if len(det) > 80:
+            det = det[:77] + "..."
+        print(f"  #{e.seq:>5} {e.ts}  {e.actor:25} {e.action:25} {e.outcome}  {det}")
+    return 0
+
+
+def cmd_audit_verify(args: argparse.Namespace) -> int:
+    """Vérifie l'intégrité de la chaîne de hash du log d'audit."""
+    from . import audit as _audit
+
+    log = _audit.AuditLog(args.path)
+    ok, errors = log.verify()
+    n = len(log.read_all())
+    if ok:
+        print(f"Audit log OK : {n} entrée(s), chaîne SHA-256 cohérente.")
+        return 0
+    print(f"AUDIT LOG ALTÉRÉ : {len(errors)} anomalie(s) détectée(s) sur {n} entrée(s).")
+    for err in errors[:20]:
+        print(f"  - {err}")
+    if len(errors) > 20:
+        print(f"  ... {len(errors) - 20} autres anomalies non affichées")
+    return 2
+
+
 def _build_notifier_manager_from_config(config: dict):
     """Construit un NotifierManager depuis `config.notify` et le branche
     en hook isolation. Retourne (manager, count) ou (None, 0)."""
@@ -716,6 +800,9 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     _core = _init_core(config)
     if not _core:
         return 1
+
+    # Phase 2.4.a : audit log immuable (opt-in via config.audit.enabled)
+    _setup_audit_log_from_config(config)
 
     # Phase 2.3.b : wire-up des notifiers depuis config.notify
     notify_mgr, notifier_count = _build_notifier_manager_from_config(config)
@@ -1089,6 +1176,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     notify_test.add_argument("--message", default=None, help="Message personnalisé")
 
+    # ---------------- audit (Phase 2.4.a — log immuable compliance) ----------
+    audit_p = subparsers.add_parser(
+        "audit",
+        help="Audit log immuable (compliance SOC2 / ISO 27001)",
+    )
+    audit_sub = audit_p.add_subparsers(dest="audit_command", required=True)
+
+    audit_show = audit_sub.add_parser("show", help="Affiche les dernières entrées")
+    audit_show.add_argument("--path", default="logs/audit.jsonl", help="Chemin du log")
+    audit_show.add_argument("--limit", type=int, default=50, help="Nombre max d'entrées")
+    audit_show.add_argument("--action", default=None, help="Filtre par type d'action")
+    audit_show.add_argument("--json", action="store_true")
+
+    audit_verify = audit_sub.add_parser(
+        "verify", help="Vérifie l'intégrité de la chaîne de hash (anti-tampering)"
+    )
+    audit_verify.add_argument("--path", default="logs/audit.jsonl")
+
     return parser
 
 
@@ -1132,6 +1237,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_notify_list(args)
         if args.notify_command == "test":
             return cmd_notify_test(args)
+    if args.command == "audit":
+        if args.audit_command == "show":
+            return cmd_audit_show(args)
+        if args.audit_command == "verify":
+            return cmd_audit_verify(args)
     return cmd_daemon(args)
 
 

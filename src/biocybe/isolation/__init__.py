@@ -179,6 +179,26 @@ def quarantine_file(
             **(extra or {}),
         },
     )
+
+    # Audit trail (no-op si pas configuré)
+    try:
+        from .. import audit as _audit
+
+        _audit.audit(
+            "quarantine_created",
+            actor=detected_by or "biocybe",
+            details={
+                "quarantine_id": qid,
+                "original_path": str(src),
+                "stored_filename": stored_filename,
+                "sha256": file_hash,
+                "size_bytes": size,
+                "reason": reason,
+            },
+        )
+    except Exception as exc:
+        logger.debug("audit append failed (non-fatal) : %s", exc)
+
     return entry
 
 
@@ -281,6 +301,22 @@ def restore_file(
             "verified_hash": verify_hash,
         },
     )
+
+    try:
+        from .. import audit as _audit
+
+        _audit.audit(
+            "quarantine_restored",
+            actor="biocybe.isolation",
+            details={
+                "quarantine_id": quarantine_id,
+                "restored_to": str(dest),
+                "verify_hash": verify_hash,
+                "removed_from_manifest": remove_from_manifest,
+            },
+        )
+    except Exception as exc:
+        logger.debug("audit append failed (non-fatal) : %s", exc)
 
     if remove_from_manifest:
         manifest_path = qdir / MANIFEST_FILENAME
