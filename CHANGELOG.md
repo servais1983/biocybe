@@ -5,6 +5,17 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 2.4.c : Supply chain hardening (SBOM + scan + politique)
+
+#### Ajouté
+- **SBOM SPDX 2.3** auto-généré à chaque build CI via `anchore/sbom-action@v0` (`syft`). Format NIST standard d'inventaire logiciel — inclut tous les packages OS + Python installés dans l'image runtime.
+- **SBOM CycloneDX 1.5** auto-généré en parallèle (compatible OWASP Dependency-Track et autres outils enterprise).
+- **Scan de vulnérabilités** via `anchore/scan-action@v6` (`grype`) avec sortie SARIF. Cutoff `high` actuellement, non-bloquant en attendant que la baseline soit propre.
+- **Artefacts archivés 30 jours** par run CI (`supply-chain-<sha>`) : SBOMs + SARIF téléchargeables pour audit.
+- **`pip-audit --strict`** sur `requirements.txt` ET sur l'install editable, `continue-on-error: true` pendant la phase de stabilisation puis bloquant.
+- **Récap supply chain** dans les logs CI à chaque run (compte de packages, compte de findings).
+- **`SECURITY.md`** : politique de signalement de vulnérabilités (Security Advisories GitHub, 72 h ack, 30 j fix, 7 j critique), modèle de menace adressé vs explicitement non-adressé, plan de rotation des clés, conformités visées (SOC 2 Type II, ISO 27001, GDPR, NIS2), liste auditable des outils sécurité utilisés (syft, grype, pip-audit, ruff, bandit).
+
 ### Phase 2.4.b : Quarantaine chiffrée AES-256-GCM (anti-exfiltration)
 
 #### Ajouté

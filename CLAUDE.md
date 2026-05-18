@@ -158,6 +158,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | **2.3.b — Notifications sortantes** | ✅ | NotifierManager (failover/retry/rate-limit), Slack + syslog RFC 5424 + webhook HTTP générique, hook automatique sur quarantaine/RT/anomalie, 19 tests |
 | **2.4.a — Audit log immuable** | ✅ | JSONL append-only + chaîne SHA-256, `verify` détecte modification/suppression/swap, intégré quarantine/restore, 12 tests |
 | **2.4.b — Quarantaine chiffrée AES-256-GCM** | ✅ | Format BCE1, AAD=SHA-256 du clair, env `BIOCYBE_QUARANTINE_KEY`, CLI `crypto generate-key`, 17 tests (tampering ciphertext/AAD/clé tous détectés) |
+| **2.4.c — Supply chain (SBOM + scan)** | ✅ | syft SBOM SPDX+CycloneDX par build, grype scan vulns, pip-audit strict, SECURITY.md complet (modèle menace, conformités, signalement) |
 | 2.3.c — Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | 2.4 — Hardening production | ⏳ | Quarantaine chiffrée AES-GCM, image distroless + SBOM, limites ressources, benchmark MalwareBazaar public |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |

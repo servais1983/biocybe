@@ -162,7 +162,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | **2.4.a** Audit log immuable | ✅ | JSONL append-only + chaîne SHA-256 tamper-evident, `audit show/verify`, intégré quarantine/restore, 12 tests (tampering, swap, suppression détectés) |
 | **2.4.b** Quarantaine chiffrée AES-256-GCM | ✅ | Format BCE1 (magic+nonce+tag+ciphertext), AAD=SHA-256 du clair (double sécurité), clé via env `BIOCYBE_QUARANTINE_KEY` ou KMS, `biocybe crypto generate-key`, 17 tests (tampering ciphertext/header/aad/clé tous détectés) |
-| **2.4.c** Image distroless + SBOM | ⏳ | Surface attaque minimale, supply chain auditable |
+| **2.4.c** Supply chain hardening | ✅ | SBOM SPDX + CycloneDX via syft, scan vulnérabilités via grype, pip-audit strict, SECURITY.md, tous les artefacts archivés 30j par run CI |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 
