@@ -120,6 +120,21 @@ def _init_core(config: dict) -> BioCybeCore | None:
                 logger.info("Chargement des cellules Lymphocytes B")
                 for cell in lymphocytes_b.create_cells(config):
                     core.register_cell(cell)
+            if "t_cell" in enabled:
+                # Import paresseux : sklearn n'est pas une dép core.
+                try:
+                    from . import lymphocytes_t
+
+                    logger.info("Chargement des cellules Lymphocytes T")
+                    for cell in lymphocytes_t.create_cells(config):
+                        core.register_cell(cell)
+                except Exception as exc:  # MLDepsMissing ou autre
+                    logger.warning(
+                        "Lymphocytes T non chargés : %s. "
+                        "Pour activer la détection comportementale : "
+                        "pip install biocybe[ml]",
+                        exc,
+                    )
         return core
     except Exception as exc:
         logger.error("Erreur lors de l'initialisation du noyau : %s", exc)
@@ -297,6 +312,136 @@ def cmd_intel_rules_update(args: argparse.Namespace) -> int:
                 f"({ratio:.0f} %), {v.rules_broken} cassées (ignorées par BCell)"
             )
     return 0
+
+
+def cmd_tcell_train(args: argparse.Namespace) -> int:
+    """Entraîne une TCell sur le système actuel pendant N secondes.
+
+    Pour la prod : à lancer pendant une période représentative
+    d'activité **normale** (heures ouvrées habituelles, pas pendant
+    une migration ou un incident).
+    """
+    try:
+        from .lymphocytes_t import TCell
+    except Exception as exc:  # MLDepsMissing
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 4
+
+    cfg = {
+        "model_dir": args.model_dir,
+        "scan_interval_seconds": args.interval,
+        "training_samples": 10_000_000,  # on dépasse jamais — on s'arrête sur durée
+        "contamination": args.contamination,
+    }
+    cell = TCell(name=args.name, config=cfg)
+
+    n_samples = max(1, int(args.duration / args.interval))
+    print(
+        f"Entraînement TCell '{cell.name}' : {n_samples} échantillons "
+        f"sur ~{args.duration:.0f}s, contamination={args.contamination}"
+    )
+    print("Garde le système dans son comportement nominal pendant ce temps.")
+
+    last_print = 0.0
+    for i in range(n_samples):
+        cell.collect_one()
+        # Progression toutes les ~2 s sans spammer
+        now = time.time()
+        if now - last_print > 2.0 or i == n_samples - 1:
+            print(f"  collecté {i + 1}/{n_samples} ({(i + 1) * 100 // n_samples} %)")
+            last_print = now
+        # Attente entre 2 collectes
+        time.sleep(args.interval)
+
+    try:
+        cell.train_from_buffer()
+    except ValueError as exc:
+        print(f"Échec entraînement : {exc}", file=sys.stderr)
+        return 5
+
+    info = cell.tcell_model
+    print(
+        f"\nModèle entraîné sur {info.n_samples} échantillons, "
+        f"persisté dans {args.model_dir}/model.joblib"
+    )
+    print(f"État : {cell.state}")
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "trained_at": info.trained_at,
+                    "n_samples": info.n_samples,
+                    "contamination": info.contamination,
+                    "model_dir": str(args.model_dir),
+                },
+                indent=2,
+            )
+        )
+    return 0
+
+
+def cmd_tcell_status(args: argparse.Namespace) -> int:
+    try:
+        from .lymphocytes_t import TCellModel
+    except Exception as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 4
+
+    try:
+        info = TCellModel.load(args.model_dir)
+    except FileNotFoundError:
+        if args.json:
+            print(json.dumps({"state": "no_model", "model_dir": str(args.model_dir)}))
+        else:
+            print(f"Aucun modèle dans {args.model_dir}. Entraîne avec `biocybe tcell train`.")
+        return 0
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "state": "ready",
+                    "trained_at": info.trained_at,
+                    "n_samples": info.n_samples,
+                    "contamination": info.contamination,
+                    "version": info.version,
+                    "features": info.feature_names,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print("TCell modèle :")
+        print(f"  Entraîné le        : {info.trained_at}")
+        print(f"  Sur N échantillons : {info.n_samples}")
+        print(f"  Contamination      : {info.contamination}")
+        print(f"  Version            : {info.version}")
+        print(f"  Features           : {len(info.feature_names)}")
+    return 0
+
+
+def cmd_tcell_evaluate(args: argparse.Namespace) -> int:
+    """Évalue l'état système courant avec la TCell entraînée."""
+    try:
+        from .lymphocytes_t import TCell
+    except Exception as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 4
+
+    cell = TCell(name=args.name, config={"model_dir": args.model_dir})
+    if cell.state != "armed":
+        print(
+            f"TCell non armée (état={cell.state}). Lance `biocybe tcell train` d'abord.",
+            file=sys.stderr,
+        )
+        return 2
+
+    explanation = cell.evaluate()
+    if args.json:
+        print(json.dumps(explanation.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(explanation.human_summary())
+    return 0 if not explanation.is_anomaly else 1
 
 
 def cmd_intel_rules_verify(args: argparse.Namespace) -> int:
@@ -619,6 +764,59 @@ def _build_parser() -> argparse.ArgumentParser:
     rules_verify.add_argument("--dest", default="rules/yara/community")
     rules_verify.add_argument("--json", action="store_true")
 
+    # ---------------- tcell (Lymphocyte T — détection comportementale ML) -----
+    tcell_p = subparsers.add_parser(
+        "tcell",
+        help="Lymphocyte T : détection d'anomalies comportementales (IsolationForest)",
+    )
+    tcell_sub = tcell_p.add_subparsers(dest="tcell_command", required=True)
+
+    tcell_train = tcell_sub.add_parser(
+        "train",
+        help="Entraîne la TCell sur l'activité système courante (durée configurable)",
+    )
+    tcell_train.add_argument(
+        "--duration",
+        type=float,
+        default=180.0,
+        help="Durée d'entraînement en secondes (défaut 180 = 3 min). "
+        "Pour la prod : 1800-3600s pendant une période 'normale' typique.",
+    )
+    tcell_train.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        help="Intervalle entre 2 échantillons en secondes (défaut 5)",
+    )
+    tcell_train.add_argument(
+        "--contamination",
+        type=float,
+        default=0.01,
+        help="Fraction d'anomalies attendue dans le baseline (défaut 0.01 = 1%%)",
+    )
+    tcell_train.add_argument(
+        "--model-dir",
+        default="models/t_cell",
+        help="Dossier de persistance du modèle",
+    )
+    tcell_train.add_argument("--name", default="t_cell_main")
+    tcell_train.add_argument("--json", action="store_true")
+
+    tcell_status = tcell_sub.add_parser(
+        "status",
+        help="Affiche l'état du modèle TCell persisté",
+    )
+    tcell_status.add_argument("--model-dir", default="models/t_cell")
+    tcell_status.add_argument("--json", action="store_true")
+
+    tcell_eval = tcell_sub.add_parser(
+        "evaluate",
+        help="Évalue l'état système courant. Exit 1 si anomalie détectée.",
+    )
+    tcell_eval.add_argument("--model-dir", default="models/t_cell")
+    tcell_eval.add_argument("--name", default="t_cell_main")
+    tcell_eval.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -648,6 +846,13 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_intel_rules_update(args)
             if args.rules_command == "verify":
                 return cmd_intel_rules_verify(args)
+    if args.command == "tcell":
+        if args.tcell_command == "train":
+            return cmd_tcell_train(args)
+        if args.tcell_command == "status":
+            return cmd_tcell_status(args)
+        if args.tcell_command == "evaluate":
+            return cmd_tcell_evaluate(args)
     return cmd_daemon(args)
 
 

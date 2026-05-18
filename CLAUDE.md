@@ -35,11 +35,11 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/neutralization/` — élimination de menace
 
 ### Annoncé dans le README mais **zéro code**
-- Lymphocytes T (anomalies sans signature)
-- Cellules NK
-- Mémoire immunitaire
+- ~~Lymphocytes T (anomalies sans signature)~~ ✅ livré Phase 2.2.d
+- Cellules NK (action sur les processus malveillants détectés)
+- Mémoire immunitaire persistante (apprentissage cross-session)
 - Modules « épigénétique / coévolutif »
-- Tableau de bord web (deps Flask/Dash listées mais aucun code)
+- Tableau de bord web (deps Flask/Dash listées mais aucun code — Phase 2.3)
 
 ## 3. Commandes utiles
 
@@ -145,7 +145,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | 2.2.a — Real-time watcher | ✅ | `--watch` daemon, watchdog cross-OS, débouncing, anti-boucle, 6 tests |
 | 2.2.b — Threat intel | 🚧 partiel | MalwareBazaar ✅. À faire : URLhaus, ThreatFox |
 | 2.2.c — Règles YARA communautaires | ✅ | signature-base + yara-rules ; 733/746 règles compilent en réel |
-| 2.2.d — Lymphocyte T (ML) | ⏳ | IsolationForest sur métriques psutil + SHAP explainability |
+| 2.2.d — Lymphocyte T (ML) | ✅ | IsolationForest sur 13 features psutil, persistence joblib, explication z-scores, intégration bus |
 | 2.2.e — `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | 2.2.f — Fix `ransomware.yar` | ✅ | math.entropy au lieu de pe.entropy, 6 règles actives |
 | 2.3 — Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |

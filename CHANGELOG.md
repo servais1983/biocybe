@@ -35,6 +35,30 @@ versioning [SemVer](https://semver.org/lang/fr/).
   rapporter le taux de succès. Test réel signature-base : 746 règles
   téléchargées, 733 compilent (98%). CLI : `biocybe intel rules
   list/update/verify` avec `--yes` requis (opt-in explicite) (Phase 2.2.c).
+- **Lymphocyte T — détection comportementale ML** : nouveau package
+  `biocybe.lymphocytes_t` avec `TCell` (extend `BiologicalCell`),
+  `MetricsCollector` (13 features psutil : CPU%, load_1m, mémoire,
+  swap, IO disque/réseau en bytes/s, processus running/zombie, threads,
+  connexions), `TCellModel` persisté via `joblib`.
+  - Cycle de vie : `learning` (collecte buffer) → auto-`armed` quand
+    `training_samples` atteints. `disarmed` proprement si modèle
+    corrompu (mauvaise version, etc.).
+  - IsolationForest 200 arbres + StandardScaler, contamination
+    configurable (défaut 0.01).
+  - Explicabilité : chaque alerte porte les 5 features avec le plus
+    grand |z-score| vs baseline (mean+std mémorisés à l'entraînement).
+    `human_summary()` lisible : `cpu_percent=98.5 (z=+4.5σ)`.
+  - Anti-storm : cooldown 60 s par défaut entre 2 alertes.
+  - Intégration bus : envoie `alert_anomaly` que `BCell._handle_anomaly_alert`
+    (Phase 1) consomme déjà pour déclencher un scan signature ciblé.
+  - sklearn/numpy/joblib en imports lazy : pas de breakage si l'extra
+    `[ml]` n'est pas installé. Message d'erreur clair (`MLDepsMissing`).
+  - CLI : `biocybe tcell train [--duration]/status/evaluate`.
+  - Test d'intégration RÉEL : entraîne sur 120 vraies mesures psutil,
+    puis injecte une charge CPU (4 threads burner), vérifie que (1) le
+    score sous charge est < score calme - 0.05 et (2) cpu_percent
+    apparaît dans le top features avec z-score positif. Pas de
+    fixture synthétique (Phase 2.2.d).
 
 #### Corrigé
 - **`rules/yara/ransomware.yar`** : remplace `pe.sections[].entropy`

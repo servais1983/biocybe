@@ -71,6 +71,13 @@ biocybe intel rules update --source signature-base --yes --verify
 biocybe intel rules update --yes           # toutes les sources
 biocybe intel rules verify signature-base  # quelles règles compilent ?
 
+# --- Lymphocyte T : détection comportementale (anomalies sans signature) ---
+pip install -e ".[ml]"                     # une fois : numpy + sklearn + joblib
+biocybe tcell train --duration 1800        # 30 min d'apprentissage en prod normale
+biocybe tcell status                       # info sur le modèle persisté
+biocybe tcell evaluate                     # score l'état système actuel
+# → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
+
 # --- Daemon avec real-time monitoring ---
 biocybe --watch /var/log --watch /tmp                      # alert-only
 biocybe --watch /var/log --watch-quarantine                # auto-quarantine
@@ -92,7 +99,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.2.a** Real-time monitoring | ✅ | `--watch` + watchdog + débouncing + anti-boucle |
 | **2.2.b** Threat intel | 🚧 | MalwareBazaar ✅, URLhaus/ThreatFox à venir |
 | **2.2.c** Règles YARA communautaires | ✅ | Import opt-in Neo23x0/signature-base (~3000), YARA-Rules/rules (~5000) avec anti zip-slip + anti zip-bomb |
-| **2.2.d** Lymphocyte T (ML anomalies) | ⏳ | IsolationForest sur métriques psutil |
+| **2.2.d** Lymphocyte T (ML anomalies) | ✅ | IsolationForest sur 13 métriques psutil, persistence joblib, explication z-scores top-features, intégration bus pour scan signature ciblé |
 | **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
 | **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
 | **2.3** Observabilité & intégration | ⏳ | REST API (Flask), webhooks Slack/syslog, dashboard Dash, Prometheus `/metrics`, SHAP/LIME |
