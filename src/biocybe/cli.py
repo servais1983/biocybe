@@ -18,6 +18,7 @@ import signal
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 
@@ -749,6 +750,81 @@ def cmd_tcell_evaluate(args: argparse.Namespace) -> int:
     return 0 if not explanation.is_anomaly else 1
 
 
+def cmd_intel_rules_build_cache(args: argparse.Namespace) -> int:
+    """Précompile le cache YARA (`compiled.yarc`).
+
+    Usage typique :
+      - en provisioning Docker (RUN biocybe intel rules build-cache)
+      - en cron quotidien après `intel rules update`
+      - manuellement après ajout de règles custom
+
+    Sans cache pré-compilé, le 1er démarrage du daemon prend 1-5 min
+    sur Windows + Defender avec 700+ règles. Avec cache, ~200 ms.
+    """
+    import time as _time
+
+    from .lymphocytes_b.b_cell import SignatureDatabase
+    from .scanner import sync_yara_rules
+
+    if not args.skip_sync:
+        copied = sync_yara_rules()
+        if copied:
+            print(f"  + {copied} règle(s) synchronisée(s) depuis rules/yara/")
+
+    db_path = Path(args.db_path)
+    if not (db_path / "yara").is_dir():
+        print(
+            f"Erreur : pas de dossier YARA dans {db_path}/yara. "
+            "Lance d'abord `biocybe intel rules update --source signature-base --yes` "
+            "ou copie tes règles dans rules/yara/.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Force la recompilation : supprime le cache existant
+    if args.force:
+        cache_bin = db_path / "yara" / "compiled.yarc"
+        cache_fp = db_path / "yara" / "compiled.fingerprint.json"
+        for f in (cache_bin, cache_fp):
+            if f.exists():
+                f.unlink()
+
+    print(f"Compilation des règles YARA dans {db_path}/yara ...")
+    t0 = _time.time()
+    # SignatureDatabase.__init__ déclenche _compile_yara_rules qui
+    # crée le cache compiled.yarc — pas besoin de stocker l'instance.
+    SignatureDatabase(str(db_path))
+    duration = _time.time() - t0
+
+    cache_bin = db_path / "yara" / "compiled.yarc"
+    cache_fp = db_path / "yara" / "compiled.fingerprint.json"
+    if not cache_bin.exists():
+        print(
+            f"\nERREUR : cache .yarc PAS créé après {duration:.1f}s. "
+            "Vérifie qu'au moins 1 règle valide existe.",
+            file=sys.stderr,
+        )
+        return 3
+
+    size_kb = cache_bin.stat().st_size / 1024
+    if args.json:
+        meta = json.loads(cache_fp.read_text(encoding="utf-8"))
+        print(json.dumps(
+            {
+                "duration_s": round(duration, 2),
+                "cache_bin": str(cache_bin),
+                "cache_size_kb": round(size_kb, 1),
+                **meta,
+            },
+            indent=2, ensure_ascii=False,
+        ))
+    else:
+        print(f"\nCache compilé en {duration:.1f}s : {cache_bin} ({size_kb:.0f} KB)")
+        print(f"Au prochain démarrage du daemon, chargement en ~50 ms (au lieu de "
+              f"{duration:.0f}s).")
+    return 0
+
+
 def cmd_intel_rules_verify(args: argparse.Namespace) -> int:
     from .intel import verify_source
 
@@ -1091,6 +1167,26 @@ def _build_parser() -> argparse.ArgumentParser:
     rules_verify.add_argument("--dest", default="rules/yara/community")
     rules_verify.add_argument("--json", action="store_true")
 
+    # Phase 3.b : précompile le cache .yarc à la demande (Docker build,
+    # provisioning, cron post-update, etc.).
+    rules_cache = intel_rules_sub.add_parser(
+        "build-cache",
+        help="Pré-compile le cache YARA (compiled.yarc) pour démarrage rapide",
+    )
+    rules_cache.add_argument(
+        "--db-path", default="db/signatures",
+        help="Dossier signatures (défaut : db/signatures)",
+    )
+    rules_cache.add_argument(
+        "--skip-sync", action="store_true",
+        help="Ne pas re-sync depuis rules/yara/ (juste compile ce qui est en db/)",
+    )
+    rules_cache.add_argument(
+        "--force", action="store_true",
+        help="Supprime le cache existant avant recompilation",
+    )
+    rules_cache.add_argument("--json", action="store_true")
+
     # ---------------- tcell (Lymphocyte T — détection comportementale ML) -----
     tcell_p = subparsers.add_parser(
         "tcell",
@@ -1287,6 +1383,8 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_intel_rules_update(args)
             if args.rules_command == "verify":
                 return cmd_intel_rules_verify(args)
+            if args.rules_command == "build-cache":
+                return cmd_intel_rules_build_cache(args)
     if args.command == "tcell":
         if args.tcell_command == "train":
             return cmd_tcell_train(args)

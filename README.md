@@ -164,6 +164,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.4.b** Quarantaine chiffrée AES-256-GCM | ✅ | Format BCE1 (magic+nonce+tag+ciphertext), AAD=SHA-256 du clair (double sécurité), clé via env `BIOCYBE_QUARANTINE_KEY` ou KMS, `biocybe crypto generate-key`, 17 tests (tampering ciphertext/header/aad/clé tous détectés) |
 | **2.4.c** Supply chain hardening | ✅ | SBOM SPDX + CycloneDX via syft, scan vulnérabilités via grype, pip-audit strict, SECURITY.md, tous les artefacts archivés 30j par run CI |
 | **3.a** Cache compilation YARA | ✅ | Cache `compiled.yarc` avec fingerprint SHA-256 des sources. Mesure réelle Windows + Defender + 748 règles : cold 311s → warm 0.19s (**speedup x1626**) |
+| **3.b** Pré-compile cache au build | ✅ | CLI `biocybe intel rules build-cache` + intégration `Dockerfile` (build stage). Image Docker démarre en ~200 ms même au 1er run |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 

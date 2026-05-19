@@ -86,6 +86,17 @@ COPY --from=builder --chown=biocybe:biocybe /opt/biocybe /opt/biocybe
 COPY --chown=biocybe:biocybe config/ /home/biocybe/config/
 COPY --chown=biocybe:biocybe rules/  /home/biocybe/rules/
 
+# Phase 3.b : précompile le cache YARA (.yarc) à l'image build pour
+# démarrage runtime quasi-instantané (~200 ms). Sans ce cache, le 1er
+# démarrage avec 700+ règles communautaires peut prendre 1-5 min.
+# Le `chown` après est pour s'assurer que le user biocybe peut lire
+# le cache généré par root.
+RUN cd /home/biocybe && \
+    mkdir -p db/signatures/yara && \
+    cp rules/yara/*.yar db/signatures/yara/ && \
+    /opt/biocybe/bin/biocybe intel rules build-cache --skip-sync && \
+    chown -R biocybe:biocybe /home/biocybe/db
+
 # Volumes pour la persistance (à monter en prod : -v biocybe-data:/home/biocybe/db)
 VOLUME ["/home/biocybe/quarantine", "/home/biocybe/db", "/home/biocybe/logs"]
 

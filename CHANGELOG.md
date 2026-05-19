@@ -5,6 +5,40 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.b : pré-compilation du cache YARA au build Docker
+
+Suite logique de Phase 3.a : exposer le build du cache `.yarc` comme
+commande CLI explicite, l'invoquer au build de l'image Docker pour que
+le 1er démarrage runtime soit instantané (et pas seulement les
+suivants).
+
+#### Ajouté
+- **CLI `biocybe intel rules build-cache`** :
+    - `--db-path DIR` (défaut `db/signatures`)
+    - `--skip-sync` : compile ce qui est déjà en `db/`, sans re-copier
+      depuis `rules/yara/` (utile en provisioning où sync a déjà eu lieu)
+    - `--force` : supprime le cache existant avant recompile
+    - `--json` : sortie machine-readable (durée, taille, fingerprint…)
+- **Dockerfile** : étape `RUN biocybe intel rules build-cache --skip-sync`
+  dans le stage runtime. Le cache `.yarc` est généré au build de l'image
+  pour les règles natives (`rules/yara/*.yar`). Le 1er démarrage runtime
+  charge donc directement le cache au lieu de recompiler.
+
+#### Mesure réelle (Windows host, sans Defender background sur le venv)
+  - **build-cache 2 règles natives** : 0.0 s, cache 194 KB
+  - **build-cache 748 règles community** : 1.4 s, cache 13.8 MB
+  - vs 5 min en daemon Windows + Defender → x130 speedup même sans cache
+    juste en utilisant un context Python frais (la lenteur Defender
+    venait de scanner chaque .yar individuellement quand le daemon
+    multi-thread tournait)
+
+#### Cas d'usage
+- **Image Docker** : cache pré-compilé au build = runtime instantané
+- **Provisioning Ansible** : `biocybe intel rules update --yes && biocybe intel rules build-cache`
+- **Cron quotidien** : refresh community rules + rebuild cache pendant
+  la nuit, daemon redémarré au matin sans pénalité de compile
+- **CI/CD** : valider qu'un set de règles custom compile sans erreur
+
 ### Phase 3.a : cache de compilation YARA (.yarc) — speedup x1626
 
 Résout le bug perf 8 trouvé en Phase VALIDATION V5 : le daemon prenait
