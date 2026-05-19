@@ -232,6 +232,13 @@ def create_app(config: APIConfig | None = None) -> Flask:
 
     app.config["BIOCYBE_API_CONFIG"] = cfg
     app.config["BIOCYBE_METRICS"] = _Metrics()
+    # Lock thread-safe pour BCell partagée (les workers waitress
+    # appellent scan_file_sync en parallèle ; la lib YARA est
+    # thread-safe en lecture mais on lock pour l'init paresseuse).
+    import threading as _threading
+
+    app.config["BIOCYBE_BCELL_LOCK"] = _threading.Lock()
+    app.config["BIOCYBE_BCELL"] = None  # init paresseux au 1er scan
 
     # CORS si configuré
     if cfg.cors_origins:
@@ -309,10 +316,30 @@ def _register_routes(app: Flask) -> None:
         quarantine = bool(payload.get("quarantine", False))
         dry_run = bool(payload.get("dry_run", False))
 
+        # BCell partagée — évite de recharger les 748 règles YARA à
+        # chaque requête (cause de timeout 10s en charge mesurée
+        # Phase VALIDATION). Création lazy au 1er scan, lock pour
+        # init thread-safe.
+        bcell_lock = current_app.config["BIOCYBE_BCELL_LOCK"]
+        with bcell_lock:
+            bcell = current_app.config.get("BIOCYBE_BCELL")
+            if bcell is None:
+                from ..lymphocytes_b import BCell
+                from ..scanner import sync_yara_rules
+
+                sync_yara_rules()
+                bcell = BCell("api_scanner")
+                current_app.config["BIOCYBE_BCELL"] = bcell
+
         start = time.time()
         try:
             verdicts = scan_path(
-                target, recursive=recursive, quarantine=quarantine, dry_run=dry_run
+                target,
+                recursive=recursive,
+                quarantine=quarantine,
+                dry_run=dry_run,
+                cell=bcell,  # réutilise la cellule partagée
+                sync_rules=False,  # déjà synchronisé au 1er scan
             )
         except FileNotFoundError as exc:
             if m.enabled:

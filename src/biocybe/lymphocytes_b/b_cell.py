@@ -380,6 +380,12 @@ class BCell(BiologicalCell):
         self.files_scanned = 0
         self.malware_detected = 0
 
+        # tick_interval court (0.5s) car la b_cell dépile sa scan_queue
+        # à chaque cycle — un scan_request doit être traité rapidement.
+        # Le coût CPU reste faible : le _process_cycle est lui-même
+        # quasi-instantané quand la queue est vide (queue.get(block=False)).
+        self.tick_interval = float(self.config.get("tick_interval", 0.5))
+
         # Enregistrer les gestionnaires de messages
         self.register_message_handler("scan_request", self._handle_scan_request)
         self.register_message_handler("alert_anomaly", self._handle_anomaly_alert)

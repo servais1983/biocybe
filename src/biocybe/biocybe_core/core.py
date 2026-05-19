@@ -24,7 +24,12 @@ import yaml
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("biocybe.log")],
+    handlers=[
+        logging.StreamHandler(),
+        # encoding="utf-8" explicite : sinon cp1252 sur Windows casse
+        # les accents et rend les logs non-parsables pour les SIEM.
+        logging.FileHandler("biocybe.log", encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger("biocybe.core")
 
@@ -68,6 +73,20 @@ class CellMessage:
             f"Message[{self.msg_type}] de {self.source} → {self.target} (priorité: {self.priority})"
         )
 
+    def __lt__(self, other: "CellMessage") -> bool:
+        """Ordonne par timestamp pour `queue.PriorityQueue`.
+
+        PriorityQueue heappush/pop compare les éléments du tuple
+        `(priority, message)` ; si la priorité est égale, Python compare
+        l'élément suivant (le message). Sans `__lt__`, on a une
+        TypeError "'<' not supported between instances of 'CellMessage'".
+
+        Détecté en daemon réel Phase VALIDATION (1 ERROR dans le log
+        à chaque égalité de priorité — typique au démarrage où plusieurs
+        cellules envoient des messages quasi-simultanés en priorité 1).
+        """
+        return self.timestamp < other.timestamp
+
     def to_dict(self):
         """Convertit le message en dictionnaire pour sérialisation"""
         return {
@@ -105,6 +124,17 @@ class BiologicalCell:
         self.message_queue = queue.PriorityQueue()
         self.message_handlers = {}
         self._stop_event = threading.Event()
+        # Intervalle entre 2 itérations du worker thread (en secondes).
+        # Défaut 1.0s = CPU idle négligeable. Une sous-classe qui doit
+        # être plus réactive (par ex. b_cell qui dépile sa scan_queue
+        # à fort débit) doit définir self.tick_interval plus court,
+        # ou mieux : utiliser un `queue.get(timeout=...)` blocant
+        # dans son _process_cycle plutôt que du polling.
+        #
+        # Fix Phase VALIDATION : avant ce changement, hard-coded à 0.1s
+        # dans _worker, ce qui donnait ~47% CPU idle avec 6 cellules
+        # sur Windows (mesuré via scripts/validate_daemon.py).
+        self.tick_interval = float(self.config.get("tick_interval", 1.0))
 
         # Métriques et statistiques
         self.stats = {
@@ -203,8 +233,9 @@ class BiologicalCell:
                 # À implémenter dans les sous-classes
                 self._process_cycle()
 
-                # Éviter de surconsommer des ressources CPU
-                self._stop_event.wait(0.1)
+                # Sleep configurable (tick_interval). 1s par défaut.
+                # Interrompu immédiatement quand _stop_event est set.
+                self._stop_event.wait(self.tick_interval)
 
         except Exception as e:
             self.logger.error(f"Erreur dans le thread de travail: {e}")
@@ -537,9 +568,12 @@ class BioCybeCore:
             # Récupérer l'état actuel
             status = self.get_status()
 
-            # Sauvegarder dans le fichier
-            with open(file_path, "w") as f:
-                json.dump(status, f, indent=2)
+            # Sauvegarder dans le fichier — encoding UTF-8 + default=str
+            # pour les datetime non sérialisables nativement par json.
+            # (sinon json.dump plante : "Object of type datetime is not
+            # JSON serializable", détecté en daemon réel Phase VALIDATION).
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(status, f, indent=2, ensure_ascii=False, default=str)
 
             self.logger.info(f"État du système sauvegardé dans {file_path}")
             return True

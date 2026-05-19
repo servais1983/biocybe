@@ -100,17 +100,65 @@ class _IOBaseline:
     timestamp: float = 0.0
 
 
+# Process_iter (énumère tous les processus avec ACL Windows) coûte
+# ~100-200ms sur un Windows typique. À 5s d'intervalle pour 2 TCells,
+# on bouffe ~5% CPU constant. On cache donc le résultat et on ne
+# rafraîchit qu'à cette périodicité (configurable).
+_PROCESS_STATS_REFRESH_S = 30.0
+
+
 class MetricsCollector:
     """Collecte un vecteur de métriques système courantes.
 
     Les compteurs cumulés (IO disque, IO réseau) sont convertis en
     débits (bytes/s) en mémorisant la dernière mesure.
+
+    Les stats process (count, running, zombie, threads) sont **cachées
+    pendant `_PROCESS_STATS_REFRESH_S` secondes** (défaut 30s) pour
+    éviter le coût d'un `psutil.process_iter` à chaque sample —
+    énumérer 300+ processus avec ACL Windows prend ~100-200ms.
+    Les variations sub-30s sont capturées par les autres features
+    rapides (CPU%, mem, IO rates).
     """
 
     def __init__(self) -> None:
         self._baseline = _IOBaseline(timestamp=time.time())
+        # Cache des stats process (refresh tous les 30s)
+        self._process_stats_cache: dict[str, float] | None = None
+        self._process_stats_ts: float = 0.0
         # Premier appel à cpu_percent renvoie 0 — on l'amorce.
         psutil.cpu_percent(interval=None)
+
+    def _refresh_process_stats(self) -> dict[str, float]:
+        """Énumère tous les processus + connexions réseau (coûteux sur
+        Windows). À ne pas appeler souvent — d'où le cache à 30s.
+        """
+        proc_count = proc_running = proc_zombie = thread_total = 0
+        try:
+            for proc in psutil.process_iter(["status", "num_threads"]):
+                proc_count += 1
+                info = proc.info
+                if info["status"] == psutil.STATUS_RUNNING:
+                    proc_running += 1
+                elif info["status"] == psutil.STATUS_ZOMBIE:
+                    proc_zombie += 1
+                if info["num_threads"]:
+                    thread_total += info["num_threads"]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+        try:
+            net_conn = len(psutil.net_connections(kind="inet"))
+        except (psutil.AccessDenied, OSError):
+            net_conn = 0
+
+        return {
+            "process_count": float(proc_count),
+            "process_count_running": float(proc_running),
+            "process_count_zombie": float(proc_zombie),
+            "thread_count_total": float(thread_total),
+            "net_connections_count": float(net_conn),
+        }
 
     def sample(self) -> dict[str, float]:
         """Retourne un dict feature_name -> float pour CE moment."""
@@ -143,24 +191,14 @@ class MetricsCollector:
             except OSError:
                 load_1m = 0.0
 
-        proc_count = proc_running = proc_zombie = thread_total = 0
-        try:
-            for proc in psutil.process_iter(["status", "num_threads"]):
-                proc_count += 1
-                info = proc.info
-                if info["status"] == psutil.STATUS_RUNNING:
-                    proc_running += 1
-                elif info["status"] == psutil.STATUS_ZOMBIE:
-                    proc_zombie += 1
-                if info["num_threads"]:
-                    thread_total += info["num_threads"]
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-
-        try:
-            net_conn = len(psutil.net_connections(kind="inet"))
-        except (psutil.AccessDenied, OSError):
-            net_conn = 0
+        # Cache des stats process (refresh tous les 30s) — voir docstring
+        if (
+            self._process_stats_cache is None
+            or (now - self._process_stats_ts) > _PROCESS_STATS_REFRESH_S
+        ):
+            self._process_stats_cache = self._refresh_process_stats()
+            self._process_stats_ts = now
+        proc_stats = self._process_stats_cache
 
         return {
             "cpu_percent": float(psutil.cpu_percent(interval=None)),
@@ -171,11 +209,11 @@ class MetricsCollector:
             "disk_io_write_bytes_rate": float(max(d_write, 0.0)),
             "net_bytes_sent_rate": float(max(n_sent, 0.0)),
             "net_bytes_recv_rate": float(max(n_recv, 0.0)),
-            "net_connections_count": float(net_conn),
-            "process_count": float(proc_count),
-            "process_count_running": float(proc_running),
-            "process_count_zombie": float(proc_zombie),
-            "thread_count_total": float(thread_total),
+            "net_connections_count": proc_stats["net_connections_count"],
+            "process_count": proc_stats["process_count"],
+            "process_count_running": proc_stats["process_count_running"],
+            "process_count_zombie": proc_stats["process_count_zombie"],
+            "thread_count_total": proc_stats["thread_count_total"],
         }
 
     def sample_vector(self) -> list[float]:

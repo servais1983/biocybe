@@ -40,6 +40,13 @@ status/
 templates/
 demo_samples/
 
+# Workdirs et rapports générés par scripts/validate_*.py
+validation_v*_workdir/
+validation_v*_*.json
+validation_v3_target.txt
+biocybe.log
+test_audit_demo.jsonl
+
 # Le dossier rules/yara/ EST commité (règles de référence).
 # Mais db/signatures/yara/ est une copie runtime — ignorée via db/ ci-dessus.
 

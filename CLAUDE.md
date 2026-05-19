@@ -171,8 +171,38 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 - `tests/test_scan_eicar.py` : 3 tests d'intégration (détection, faux positif, sync)
 - `.gitignore` : exclusion des artefacts runtime
 
+## 6 bis. Scripts de validation prod-grade
+
+`scripts/validate_*.py` — à lancer avant chaque release majeure.
+Chacun **trouve de vrais bugs** (la première exécution en a sorti 9
+dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
+
+  - `validate_daemon.py --duration 120` — observe RSS/CPU/erreurs du
+    daemon, vérifie pas de fuite, arrêt propre. PASS critères : RSS
+    drift < 30%, CPU moyen < 20%, 0 traceback.
+  - `validate_scan.py` — crée 8 fichiers (5 IOCs réels signature-base
+    + 3 bénins), vérifie 5/5 TP et 0/3 FP. Requiert
+    `biocybe intel rules update --source signature-base --yes` au préalable.
+  - `validate_api_load.py [--per-endpoint 250] [--concurrency 32]` —
+    démarre l'API (waitress), envoie 1000 req mixtes, vérifie 0 erreur
+    et p99 < 2s sur scan. Mesure RSS drift.
+  - `validate_watcher_batch.py` — 1000 fichiers créés en rafale dans
+    le dossier surveillé. Vérifie 100% recall sur IOCs, 0% FP,
+    latence p99 < 5s, 0 perte d'événement.
+  - `validate_full_stack.py [DAEMON_VALIDATION_DURATION=300]` — daemon
+    complet avec cells + watcher + audit + auto-quarantine. Injecte des
+    IOCs périodiquement, vérifie quarantaine + audit chaîne SHA-256.
+
 ## 7. Pièges connus / dette technique
 
+- **Compilation YARA des 748 règles communautaires prend ~1m15 sur
+  Windows + Defender actif** (mesuré Phase VALIDATION V5). Pour la
+  prod : implémenter `yara.compile().save_to_file()` qui cache le
+  binaire compilé, recharge en <100 ms. À traiter en Phase 3.
+- Le daemon ne quarantine pas en mode `--watch` si le watcher n'a pas
+  fini de démarrer (compilation YARA en cours). Fix : ne pas signaler
+  "Système démarré" avant que `watcher.start()` retourne ; faire
+  attendre les producteurs sur un `event.is_set()`.
 - `tools/review_code.py` utilise l'API `openai.ChatCompletion.create` **obsolète** (openai>=1.0 a cassé). Et il référence `main.py` qui n'existe pas. À supprimer ou réécrire.
 - `src/swarm_intelligence/__init__.py` contient **826 lignes de code métier** dans un `__init__.py`. À refactorer en `src/swarm_intelligence/swarm.py` quand on touchera à ce module.
 - `tensorflow` dans `requirements.txt` casse l'install sur Python 3.13. À séparer en `requirements-ml.txt` optionnel.

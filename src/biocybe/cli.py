@@ -32,7 +32,13 @@ if hasattr(sys.stdout, "reconfigure"):
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("biocybe.log")],
+    handlers=[
+        logging.StreamHandler(),
+        # encoding="utf-8" explicite : sinon Windows utilise cp1252 par
+        # défaut et casse les accents — donc logs illisibles dans un
+        # SIEM Linux qui s'attend à de l'UTF-8.
+        logging.FileHandler("biocybe.log", encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger("biocybe.cli")
 
@@ -831,6 +837,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _handle_signal)
+    # Windows envoie SIGBREAK (Ctrl+Break) plutôt que SIGTERM ; sans
+    # handler explicite Python lève KeyboardInterrupt — on s'arrête
+    # proprement comme pour SIGINT.
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _handle_signal)
 
     _core = _init_core(config)
     if not _core:
