@@ -5,6 +5,92 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.d : threat intel multi-source — URLhaus + ThreatFox (abuse.ch)
+
+Extension du module `biocybe.intel` au-delà de MalwareBazaar. Deux feeds
+abuse.ch supplémentaires, complémentaires sur les types d'IOC, exploitables
+par le scanner (hashes) et les futures cellules réseau (URLs/IPs/domains).
+
+#### Nouveaux clients
+
+- **`biocybe.intel.urlhaus.URLhausClient`** — feed CSV public
+  `https://urlhaus.abuse.ch/downloads/csv_recent/` (24 dernières heures).
+  Pas d'auth requise (la clé `ABUSECH_AUTH_KEY` augmente le rate limit
+  si fournie). Parse les lignes `#`-commentées correctement, garde-fou
+  anti-CSV-bombe (refus si > 50 MB).
+- **`biocybe.intel.threatfox.ThreatFoxClient`** — API JSON
+  `https://threatfox-api.abuse.ch/api/v1/` (POST `get_iocs` jusqu'à 7j).
+  Auth-Key abuse.ch obligatoire. Couvre **tous types d'IOC** : hashes
+  (sha256/md5/sha1), URLs, domaines, `ip:port`, avec famille malware et
+  confidence score 0-100.
+
+#### Stockage et index
+
+`db/signatures/urlhaus/` :
+  - `urls.json` — liste complète des entrées (URL, hostname, status, threat, tags, reporter)
+  - `hostnames.json` — index `hostname → [URLs]` pour lookup O(1)
+  - `last_update.txt` — horodatage ISO
+
+`db/signatures/threatfox/` :
+  - `iocs.json` — dump brut typé
+  - `by_type/{hash,url,domain,ip,other}.json` — index par catégorie logique
+    (les types granulaires abuse.ch `sha256_hash`/`md5_hash`/... sont
+    regroupés sous `hash` pour lookup unifié)
+  - `last_update.txt`
+
+#### CLI : multi-source unifié
+
+    biocybe intel update                        # = --source all
+    biocybe intel update --source malwarebazaar
+    biocybe intel update --source urlhaus
+    biocybe intel update --source threatfox --threatfox-days 7
+    biocybe intel update --source all           # les 3 enchaînés
+
+Sémantique multi-source : exit `1` si **au moins une** source en
+erreur, sortie texte récapitulative ligne par ligne. Plus de
+distinction code 2 (auth) / code 3 (API) — un échec partiel reste
+un échec côté pipeline CI.
+
+#### Tests (`tests/test_intel_urlhaus.py` + `tests/test_intel_threatfox.py`, 16 tests)
+
+URLhaus :
+  - Parsing CSV (incluant lignes commentées `#`)
+  - Extraction `hostname` via `urllib.parse.urlparse`
+  - Auth optionnelle (header `Auth-Key` seulement si présente)
+  - Refus CSV > `MAX_CSV_SIZE_BYTES` (50 MB)
+  - CSV vide → `AbuseChAPIError` clair
+  - `update_urlhaus_iocs` écrit `urls.json` + `hostnames.json` + `last_update.txt`
+  - Index hostname dédupliqué correctement
+
+ThreatFox :
+  - Parsing payload JSON (champs `malware_printable`/`malware` fallback,
+    `confidence_level` int safe, `tags` liste safe)
+  - Auth-Key envoyée en header, User-Agent BioCybe
+  - `days` clampé à `[1, 7]` (limite abuse.ch)
+  - `AbuseChAuthMissing` si pas de clé (message pointant `auth.abuse.ch`)
+  - `query_status != "ok"` → `AbuseChAPIError`
+  - `update_threatfox_iocs` génère les buckets `by_type/{hash,url,domain,ip}.json`
+  - CLI `--source threatfox` route bien et compte les stats
+
+Plus le test régression `test_cli_intel_update_auth_missing` mis à jour
+(exit code 1 pour cohérence avec la sémantique multi-source).
+
+#### Pourquoi c'est utile
+
+  - **MalwareBazaar** alimente déjà les hashes pour le scanner. Mais
+    les ransomware modernes changent de hash à chaque infection.
+  - **URLhaus** donne les URLs distribuant ces malwares — c'est ce que
+    surveillera la future cellule réseau (Phase 3.e+). Un proxy
+    d'entreprise peut bloquer ces hostnames *avant* le téléchargement.
+  - **ThreatFox** ajoute les **C2 servers, botnets, infrastructure** —
+    indicateurs réseau actifs. Index `by_type/ip.json` directement
+    consommable comme blocklist firewall.
+
+Effet net : passage d'**1 feed** (hashes uniquement) à **3 feeds
+corrélés** couvrant fichiers + URLs + infrastructure réseau. C'est ce
+qu'attendent les SOC qui consomment du threat intel (vs un AV
+classique).
+
 ### Phase 3.c : readiness probe Kubernetes réel sur `/readyz`
 
 Refactor de `/readyz` qui retournait juste `{"status": "ready"}` sans

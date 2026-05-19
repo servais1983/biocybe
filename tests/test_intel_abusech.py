@@ -173,6 +173,8 @@ def test_cli_intel_update_auth_missing(monkeypatch, tmp_path, capsys):
     monkeypatch.delenv("ABUSECH_AUTH_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     exit_code = main(["intel", "update"])
-    assert exit_code == 2
+    # Phase 3.d : sémantique multi-source — exit 1 si AU MOINS UNE
+    # source en erreur (peu importe le code spécifique).
+    assert exit_code == 1
     err = capsys.readouterr().err
-    assert "Auth manquante" in err
+    assert "auth manquante" in err.lower()

@@ -222,30 +222,79 @@ def cmd_quarantine_list(args: argparse.Namespace) -> int:
 
 
 def cmd_intel_update(args: argparse.Namespace) -> int:
-    """Met à jour les bases de signatures depuis les feeds de threat intel."""
-    from .intel import AbuseChAuthMissing, update_signatures_from_malwarebazaar
+    """Met à jour les bases de signatures/IOCs depuis abuse.ch.
 
-    try:
-        stats = update_signatures_from_malwarebazaar(
-            db_path=args.db_path,
-            selector=args.selector,
-        )
-    except AbuseChAuthMissing as exc:
-        print(f"Auth manquante : {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Échec mise à jour : {exc}", file=sys.stderr)
-        return 3
+    Sources supportées :
+      - malwarebazaar : hashes md5/sha1/sha256 d'échantillons
+      - urlhaus       : URLs malveillantes (CSV public, pas d'auth requise)
+      - threatfox     : IOCs structurés (URL/IP/domaine/hash + famille)
+      - all           : toutes les sources ci-dessus
+    """
+    from .intel import (
+        AbuseChAPIError,
+        AbuseChAuthMissing,
+        update_signatures_from_malwarebazaar,
+        update_threatfox_iocs,
+        update_urlhaus_iocs,
+    )
+
+    sources = ["malwarebazaar", "urlhaus", "threatfox"] if args.source == "all" else [args.source]
+
+    all_stats: dict[str, dict] = {}
+    any_error = False
+
+    for src in sources:
+        try:
+            if src == "malwarebazaar":
+                stats = update_signatures_from_malwarebazaar(
+                    db_path=args.db_path,
+                    selector=args.selector,
+                )
+                summary = (
+                    f"MalwareBazaar : {stats['fetched']} échantillons, "
+                    f"{stats['added']} ajoutés, {stats['updated']} mis à jour. "
+                    f"Total : {stats['total']}."
+                )
+            elif src == "urlhaus":
+                stats = update_urlhaus_iocs(db_path=args.db_path)
+                summary = (
+                    f"URLhaus : {stats['fetched']} URLs ({stats['unique_hostnames']} "
+                    f"hosts uniques, {stats['online']} online)."
+                )
+            elif src == "threatfox":
+                stats = update_threatfox_iocs(
+                    db_path=args.db_path,
+                    days=args.threatfox_days,
+                )
+                bt = stats.get("by_type_counts", {})
+                summary = (
+                    f"ThreatFox : {stats['fetched']} IOCs "
+                    f"({bt.get('hash', 0)} hashes, {bt.get('url', 0)} URLs, "
+                    f"{bt.get('domain', 0)} domaines, {bt.get('ip', 0)} IPs)."
+                )
+            else:
+                print(f"Source inconnue : {src}", file=sys.stderr)
+                return 2
+
+            all_stats[src] = stats
+            if not args.json:
+                print(summary)
+        except AbuseChAuthMissing as exc:
+            print(f"[{src}] auth manquante : {exc}", file=sys.stderr)
+            all_stats[src] = {"error": "auth_missing", "detail": str(exc)}
+            any_error = True
+        except AbuseChAPIError as exc:
+            print(f"[{src}] erreur API : {exc}", file=sys.stderr)
+            all_stats[src] = {"error": "api_error", "detail": str(exc)}
+            any_error = True
+        except Exception as exc:
+            print(f"[{src}] échec mise à jour : {exc}", file=sys.stderr)
+            all_stats[src] = {"error": "unknown", "detail": str(exc)}
+            any_error = True
 
     if args.json:
-        print(json.dumps(stats, indent=2, ensure_ascii=False))
-    else:
-        print(
-            f"MalwareBazaar : {stats['fetched']} échantillons récupérés, "
-            f"{stats['added']} ajoutés, {stats['updated']} mis à jour. "
-            f"Total signatures : {stats['total']}."
-        )
-    return 0
+        print(json.dumps(all_stats, indent=2, ensure_ascii=False))
+    return 1 if any_error else 0
 
 
 def cmd_intel_rules_list(args: argparse.Namespace) -> int:
@@ -1106,21 +1155,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     intel_sub = intel_p.add_subparsers(dest="intel_command", required=True)
 
-    # intel update : alimenté par abuse.ch (anciennement seul)
+    # intel update : feeds abuse.ch (MalwareBazaar / URLhaus / ThreatFox)
     intel_up = intel_sub.add_parser(
         "update",
-        help="Télécharge les nouveaux IOC depuis abuse.ch MalwareBazaar",
+        help="Télécharge les IOCs depuis abuse.ch (MalwareBazaar/URLhaus/ThreatFox)",
     )
     intel_up.add_argument(
         "--source",
-        choices=["malwarebazaar"],
+        choices=["malwarebazaar", "urlhaus", "threatfox", "all"],
         default="malwarebazaar",
-        help="Source à interroger (autres prévues : urlhaus, threatfox)",
+        help="Source à interroger (défaut malwarebazaar, `all` pour tout)",
     )
     intel_up.add_argument(
         "--selector",
         default="100",
         help="MalwareBazaar selector : 'time' (60 min), '100' ou '1000' derniers",
+    )
+    intel_up.add_argument(
+        "--threatfox-days",
+        type=int,
+        default=1,
+        help="ThreatFox : nombre de jours à récupérer (1-7, défaut 1)",
     )
     intel_up.add_argument(
         "--db-path",

@@ -58,11 +58,14 @@ biocybe quarantine restore <id>            # restauration avec vérification SHA
 biocybe quarantine restore <id> --to /chemin/alternatif
 biocybe quarantine restore <id> --keep-manifest    # garde l'audit trail
 
-# --- Threat intel : abuse.ch MalwareBazaar (auth gratuite requise) ---
-export ABUSECH_AUTH_KEY="..."              # cf. https://auth.abuse.ch
-biocybe intel update                       # 100 derniers échantillons
-biocybe intel update --selector time       # derniers 60 min
-biocybe intel update --selector 1000       # 1000 derniers
+# --- Threat intel : abuse.ch (3 feeds gratuits) ---
+export ABUSECH_AUTH_KEY="..."              # cf. https://auth.abuse.ch (URLhaus auth optionnelle)
+biocybe intel update                       # = --source all : MalwareBazaar + URLhaus + ThreatFox
+biocybe intel update --source malwarebazaar           # hashes de malwares (100 derniers)
+biocybe intel update --source malwarebazaar --selector time  # derniers 60 min
+biocybe intel update --source urlhaus                 # URLs malveillantes 24h (CSV public)
+biocybe intel update --source threatfox --threatfox-days 7  # IOCs structurés (C2, payload, botnet, max 7j)
+# → db/signatures/{hashes,urlhaus,threatfox}/ alimentés pour le scanner & futures cellules réseau
 
 # --- Règles YARA communautaires (opt-in) ---
 biocybe intel rules list                   # voir les sources disponibles
@@ -152,7 +155,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **1** MVP démontrable | ✅ | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
 | **2.1** Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS/Python, pre-commit |
 | **2.2.a** Real-time monitoring | ✅ | `--watch` + watchdog + débouncing + anti-boucle |
-| **2.2.b** Threat intel | 🚧 | MalwareBazaar ✅, URLhaus/ThreatFox à venir |
+| **2.2.b** Threat intel (MalwareBazaar) | ✅ | Hashes malwares depuis abuse.ch, signatures.json idempotent |
 | **2.2.c** Règles YARA communautaires | ✅ | Import opt-in Neo23x0/signature-base (~3000), YARA-Rules/rules (~5000) avec anti zip-slip + anti zip-bomb |
 | **2.2.d** Lymphocyte T (ML anomalies) | ✅ | IsolationForest sur 13 métriques psutil, persistence joblib, explication z-scores top-features, intégration bus pour scan signature ciblé |
 | **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
@@ -166,6 +169,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.a** Cache compilation YARA | ✅ | Cache `compiled.yarc` avec fingerprint SHA-256 des sources. Mesure réelle Windows + Defender + 748 règles : cold 311s → warm 0.19s (**speedup x1626**) |
 | **3.b** Pré-compile cache au build | ✅ | CLI `biocybe intel rules build-cache` + intégration `Dockerfile` (build stage). Image Docker démarre en ~200 ms même au 1er run |
 | **3.c** K8s readiness probe réel | ✅ | `/readyz` (no auth, K8s-compatible) fait 4 checks réels : `quarantine_dir` writable, `rules_yara_compilable` (cache ou sources), `metrics` (prometheus OK), `auth` (token configuré + ≥16 chars). Retourne 200 ou 503 avec diagnostic détaillé |
+| **3.d** Threat intel multi-source (URLhaus + ThreatFox) | ✅ | Feeds abuse.ch supplémentaires : URLhaus (URLs malveillantes 24h, CSV public sans auth, hostname index) + ThreatFox (IOCs structurés C2/payload/botnet, JSON Auth-Key, index `by_type/{hash,url,domain,ip}.json` pour lookup O(1)). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. 16 tests (8 par feed, mocks API complets) |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 
