@@ -5,6 +5,91 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.e : sentinelle réseau IOC-aware
+
+Exploite les feeds de la Phase 3.d (URLhaus + ThreatFox) pour détecter
+les **IOCs réseau référencés dans le contenu des fichiers**. Couvre un
+angle d'attaque que YARA + hash signature ne traite pas : un script
+PowerShell téléchargé contient l'URL du payload — on la détecte AVANT
+exécution. Un dump mémoire / log / config contient l'IP du C2 — alerte
+immédiate.
+
+#### Nouveaux modules
+
+- **`biocybe.intel.ioc_lookup.IOCLookup`** — moteur en mémoire qui
+  agrège tous les feeds locaux (MalwareBazaar `hashes/signatures.json`,
+  URLhaus `urlhaus/{urls,hostnames}.json`, ThreatFox
+  `threatfox/by_type/{hash,domain,ip}.json`). Lookup O(1) par dict,
+  avec :
+  - **fallback parent domain** : un sous-domaine `foo.bar.evil-c2.test`
+    matche si `evil-c2.test` est indexé (renvoie `matched_parent_domain`
+    dans `metadata`)
+  - **merge keep-best** : si un hash est dans plusieurs feeds, on garde
+    la source de plus haute confidence
+  - **fail-safe** : fichiers absents/corrompus → instance vide, pas de
+    crash. Permet un déploiement neuf sans pré-requis
+  - `lookup_auto(value)` : détecte le type (hex 32/40/64 → hash, scheme
+    → url, `ipaddress`-parseable → ip, sinon hostname)
+  - `reload()` idempotent — rafraîchit après un `intel update` sans
+    redémarrer le processus
+
+- **`biocybe.network_sentinel.NetworkSentinel`** — extracteur + matcher
+  d'IOCs depuis le contenu d'un fichier :
+  - regex ASCII (flag `re.ASCII`) pour `\b` robuste sur **fichiers
+    binaires** (latin-1 fallback ne pollue plus les frontières de mots)
+  - **denylist** de 30+ hostnames courants (`github.com`,
+    `googleapis.com`, `microsoft.com`, etc.) pour éviter les FP sur du
+    code source / doc / manifestes
+  - **dédup** par `(ioc_type, value)` — un IOC répété N fois n'apparaît
+    qu'une seule fois
+  - cap `DEFAULT_MAX_BYTES = 50 MB` — protection OOM, fichiers tronqués
+    signalés via `result.truncated`
+  - extraction simultanée URLs/IPs/hosts/hashes, comptage stocké dans
+    `extracted_counts` pour observabilité
+
+#### Intégration scanner
+
+`scanner.scan_path(..., network_scan=True)` ajoute un `NetworkScanResult`
+à chaque `FileVerdict`. Si des IOCs sont trouvés, le verdict devient
+malveillant (logique OR avec les signatures YARA/hash). En mode
+`--quarantine`, le `reason` inclut les top-3 IOCs réseau.
+
+`format_report` affiche désormais chaque IOC réseau trouvé :
+
+    - IOC réseau : url = http://evil.example.org/x (abuse.ch/URLhaus, malware=unknown, conf=75)
+    - IOC réseau : ip = 10.20.30.40:8080 (abuse.ch/ThreatFox, malware=Cobalt Strike, conf=100)
+
+#### CLI
+
+  - `biocybe intel lookup <value>` — query directe (type auto-détecté
+    ou forcé via `--type {hash,hostname,url,ip}`). Exit 0 si match,
+    1 si miss, 2 si base vide. Sortie texte ou `--json`.
+  - `biocybe intel stats` — compteurs par type (hashes/hostnames/urls/ips).
+  - `biocybe scan <path> --network-scan` — active la sentinelle.
+
+#### Tests (`tests/test_ioc_lookup.py` + `tests/test_network_sentinel.py`, 23 tests)
+
+  - Lookup : tous les types, case-insensitive, parent domain fallback,
+    base vide / JSON corrompu fail-safe, reload idempotent, merge
+    keep-best confidence
+  - Sentinelle : extraction URL/IP/host/hash, denylist appliquée même
+    via fallback `lookup_url`, dédup, truncation, decode binaire safe
+    avec octets > 127, scan d'un dossier mixte (sain + IOC) via
+    `scanner.scan_path`
+  - CLI : `intel stats`, `intel lookup` hit / miss / base vide
+
+#### Pourquoi c'est utile concrètement
+
+Avant Phase 3.e, BioCybe détectait :
+  - ce que le fichier **est** (YARA pattern, hash signature)
+  - le comportement du système (TCell ML)
+
+Phase 3.e ajoute : ce dont le fichier **parle**. C'est ce qui permet
+de bloquer un loader 0-day dont le binaire est inconnu mais qui pointe
+vers un domaine C2 déjà brûlé. C'est la couche "threat hunting"
+classique des SOC, désormais exploitable en CLI ou intégrée au
+pipeline scan.
+
 ### Phase 3.d : threat intel multi-source — URLhaus + ThreatFox (abuse.ch)
 
 Extension du module `biocybe.intel` au-delà de MalwareBazaar. Deux feeds

@@ -16,6 +16,10 @@ from .abusech import (
     MalwareBazaarClient,
     update_signatures_from_malwarebazaar,
 )
+from .ioc_lookup import (
+    IOCHit,
+    IOCLookup,
+)
 from .rules import (
     KNOWN_SOURCES,
     DownloadResult,
@@ -41,6 +45,8 @@ __all__ = [
     "AbuseChAPIError",
     "AbuseChAuthMissing",
     "DownloadResult",
+    "IOCHit",
+    "IOCLookup",
     "MalwareBazaarClient",
     "ThreatFoxClient",
     "ThreatFoxIOC",

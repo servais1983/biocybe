@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .isolation import DEFAULT_QUARANTINE_DIR, QuarantineEntry, quarantine_file
 from .lymphocytes_b import BCell, ScanResult
+from .network_sentinel import NetworkScanResult, NetworkSentinel
 
 logger = logging.getLogger("biocybe.scanner")
 
@@ -54,10 +55,18 @@ class FileVerdict:
     quarantine: QuarantineEntry | None = None
     # En mode --dry-run, on n'agit pas mais on signale ce qu'on aurait fait.
     quarantine_dry_run: bool = False
+    # Phase 3.e : IOCs réseau trouvés dans le contenu (URLs/IPs/hosts/hashes
+    # référencés depuis URLhaus/ThreatFox). None si le scan réseau n'a pas
+    # été activé pour ce fichier.
+    network: NetworkScanResult | None = None
 
     @property
     def is_malicious(self) -> bool:
-        return self.result.is_malicious
+        if self.result.is_malicious:
+            return True
+        if self.network is not None and self.network.is_malicious:
+            return True
+        return False
 
 
 def sync_yara_rules(
@@ -136,6 +145,9 @@ def scan_path(
     dry_run: bool = False,
     cell: BCell | None = None,
     sync_rules: bool = True,
+    network_scan: bool = False,
+    sentinel: NetworkSentinel | None = None,
+    db_path: str | Path = "db/signatures",
 ) -> list[FileVerdict]:
     """Scanne un fichier ou un dossier, retourne la liste des verdicts.
 
@@ -150,6 +162,13 @@ def scan_path(
             positifs avant d'activer les actions.
         cell: BCell à réutiliser (utile pour tests). Sinon en crée une.
         sync_rules: copier `rules/yara/` -> `db/signatures/yara/` avant le scan.
+        network_scan: Phase 3.e — active la NetworkSentinel qui cherche
+            des IOCs réseau (URLs/IPs/hosts/hashes) dans le contenu des
+            fichiers, depuis les feeds URLhaus + ThreatFox.
+        sentinel: NetworkSentinel à réutiliser. Sinon, en crée une depuis
+            `db_path`. Si le lookup est vide (feeds jamais importés), la
+            sentinelle ne fait rien — c'est OK.
+        db_path: racine des index IOC (`db/signatures/` par défaut).
     """
     target_path = Path(target).resolve()
     if not target_path.exists():
@@ -161,6 +180,14 @@ def scan_path(
     if cell is None:
         cell = BCell("cli_scanner")
 
+    if network_scan and sentinel is None:
+        sentinel = NetworkSentinel.from_db(db_path)
+        if sentinel.lookup.total == 0:
+            logger.warning(
+                "Network scan demandé mais aucun IOC chargé. "
+                "Lance d'abord : biocybe intel update"
+            )
+
     verdicts: list[FileVerdict] = []
     for file_path in _iter_files(target_path, recursive=recursive):
         try:
@@ -171,7 +198,14 @@ def scan_path(
 
         verdict = FileVerdict(path=file_path, result=result)
 
-        if result.is_malicious and quarantine:
+        # Scan réseau (IOCs URLs/IPs/hosts/hashes référencés)
+        if sentinel is not None:
+            try:
+                verdict.network = sentinel.scan_file(file_path)
+            except Exception as exc:
+                logger.error("Échec network scan pour %s : %s", file_path, exc)
+
+        if verdict.is_malicious and quarantine:
             if dry_run:
                 verdict.quarantine_dry_run = True
                 logger.info("[DRY-RUN] aurait mis en quarantaine : %s", file_path)
@@ -184,6 +218,11 @@ def scan_path(
                     for s in result.matched_signatures
                     if s.get("type") == "hash"
                 ]
+                if verdict.network and verdict.network.is_malicious:
+                    reason_parts += [
+                        f"ioc:{h.ioc_type}:{h.value[:60]}"
+                        for h in verdict.network.iocs_found[:3]
+                    ]
                 reason = ", ".join(reason_parts) or "malicious"
                 try:
                     verdict.quarantine = quarantine_file(
@@ -193,6 +232,11 @@ def scan_path(
                         extra={
                             "family": result.malware_family,
                             "severity": result.severity,
+                            "network_iocs": (
+                                [h.to_dict() for h in verdict.network.iocs_found]
+                                if verdict.network
+                                else []
+                            ),
                         },
                     )
                 except Exception as exc:
@@ -231,6 +275,12 @@ def format_report(verdicts: list[FileVerdict]) -> str:
                 lines.append(f"    - règle YARA : {rule.get('rule')}")
             for sig in r.matched_signatures:
                 lines.append(f"    - signature  : {sig.get('type')} = {sig.get('value', 'N/A')}")
+            if v.network and v.network.is_malicious:
+                for hit in v.network.iocs_found:
+                    lines.append(
+                        f"    - IOC réseau : {hit.ioc_type} = {hit.value} "
+                        f"({hit.source}, malware={hit.malware}, conf={hit.confidence})"
+                    )
             if v.quarantine:
                 lines.append(f"  Quarantaine : {v.quarantine.stored_filename}")
             elif v.quarantine_dry_run:

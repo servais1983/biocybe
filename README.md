@@ -65,7 +65,18 @@ biocybe intel update --source malwarebazaar           # hashes de malwares (100 
 biocybe intel update --source malwarebazaar --selector time  # derniers 60 min
 biocybe intel update --source urlhaus                 # URLs malveillantes 24h (CSV public)
 biocybe intel update --source threatfox --threatfox-days 7  # IOCs structurés (C2, payload, botnet, max 7j)
-# → db/signatures/{hashes,urlhaus,threatfox}/ alimentés pour le scanner & futures cellules réseau
+# → db/signatures/{hashes,urlhaus,threatfox}/ alimentés pour le scanner & cellules réseau
+
+# --- Sentinelle réseau IOC-aware (Phase 3.e) ---
+biocybe intel stats                        # combien d'IOCs chargés depuis les feeds locaux ?
+biocybe intel lookup evil.example.com      # lookup auto-typé (hash/host/url/ip détecté)
+biocybe intel lookup 1.2.3.4:443 --json    # lookup IP avec port
+biocybe intel lookup $(sha256sum file.exe | awk '{print $1}')   # hash d'un fichier
+
+# Scan + détection IOCs réseau dans le contenu des fichiers
+biocybe scan ./dossier --network-scan                  # signale URLs/IPs/hashes connus malveillants
+biocybe scan ./dossier --network-scan --quarantine     # + quarantine si IOC trouvé
+biocybe scan ./email.eml --network-scan --json         # parse les liens d'un mail suspicieux
 
 # --- Règles YARA communautaires (opt-in) ---
 biocybe intel rules list                   # voir les sources disponibles
@@ -170,6 +181,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.b** Pré-compile cache au build | ✅ | CLI `biocybe intel rules build-cache` + intégration `Dockerfile` (build stage). Image Docker démarre en ~200 ms même au 1er run |
 | **3.c** K8s readiness probe réel | ✅ | `/readyz` (no auth, K8s-compatible) fait 4 checks réels : `quarantine_dir` writable, `rules_yara_compilable` (cache ou sources), `metrics` (prometheus OK), `auth` (token configuré + ≥16 chars). Retourne 200 ou 503 avec diagnostic détaillé |
 | **3.d** Threat intel multi-source (URLhaus + ThreatFox) | ✅ | Feeds abuse.ch supplémentaires : URLhaus (URLs malveillantes 24h, CSV public sans auth, hostname index) + ThreatFox (IOCs structurés C2/payload/botnet, JSON Auth-Key, index `by_type/{hash,url,domain,ip}.json` pour lookup O(1)). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. 16 tests (8 par feed, mocks API complets) |
+| **3.e** Sentinelle réseau IOC-aware | ✅ | `IOCLookup` charge les feeds en mémoire (lookup O(1) hash/host/url/ip avec fallback parent domain). `NetworkSentinel` extrait URLs/IPs/hosts/hashes du contenu fichier (regex ASCII anti-binaire, denylist 30+ TLDs courants anti-FP, dédup, cap 50MB). Intégré au scanner via `--network-scan`. CLI `biocybe intel lookup <value>` et `intel stats`. 23 tests |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 

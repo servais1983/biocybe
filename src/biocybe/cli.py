@@ -161,6 +161,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             recursive=not args.no_recursive,
             quarantine=args.quarantine,
             dry_run=args.dry_run,
+            network_scan=getattr(args, "network_scan", False),
         )
     except FileNotFoundError as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
@@ -171,6 +172,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             {
                 "path": str(v.path),
                 "result": v.result.to_dict(),
+                "network": v.network.to_dict() if v.network else None,
                 "quarantine": (
                     {
                         "id": v.quarantine.quarantine_id,
@@ -878,6 +880,86 @@ def cmd_intel_rules_build_cache(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_intel_lookup(args: argparse.Namespace) -> int:
+    """Cherche une valeur dans les feeds IOC indexés localement (Phase 3.e)."""
+    from .intel.ioc_lookup import IOCLookup
+
+    lookup = IOCLookup.from_db(args.db_path)
+    if lookup.total == 0:
+        print(
+            "Aucun IOC chargé. Lance d'abord :\n"
+            "  biocybe intel update --source all",
+            file=sys.stderr,
+        )
+        return 2
+
+    type_ = args.type
+    if type_ == "auto":
+        hit = lookup.lookup_auto(args.value)
+    elif type_ == "hash":
+        hit = lookup.lookup_hash(args.value)
+    elif type_ == "hostname":
+        hit = lookup.lookup_hostname(args.value)
+    elif type_ == "url":
+        hit = lookup.lookup_url(args.value)
+    elif type_ == "ip":
+        hit = lookup.lookup_ip(args.value)
+    else:
+        print(f"Type inconnu : {type_}", file=sys.stderr)
+        return 2
+
+    if hit is None:
+        if args.json:
+            print(json.dumps({"value": args.value, "match": None}))
+        else:
+            print(f"Aucun match pour : {args.value}")
+        return 1
+
+    if args.json:
+        print(json.dumps({"value": args.value, "match": hit.to_dict()}, indent=2, ensure_ascii=False))
+    else:
+        print(f"MATCH IOC trouvé : {args.value}")
+        print(f"  Type      : {hit.ioc_type}")
+        print(f"  Source    : {hit.source}")
+        print(f"  Malware   : {hit.malware}")
+        print(f"  Threat    : {hit.threat_type or 'N/A'}")
+        print(f"  Confiance : {hit.confidence}/100")
+        if hit.metadata:
+            interesting = {
+                k: v
+                for k, v in hit.metadata.items()
+                if k in ("first_seen", "date_added", "tags", "hostname", "matched_parent_domain", "url_status")
+            }
+            if interesting:
+                print("  Metadata  :")
+                for k, v in interesting.items():
+                    print(f"    {k}: {v}")
+    return 0
+
+
+def cmd_intel_stats(args: argparse.Namespace) -> int:
+    """Affiche les compteurs IOC chargés localement (Phase 3.e)."""
+    from .intel.ioc_lookup import IOCLookup
+
+    lookup = IOCLookup.from_db(args.db_path)
+    stats = lookup.stats()
+    total = lookup.total
+
+    if args.json:
+        print(json.dumps({"total": total, "by_type": stats, "db_path": str(args.db_path)},
+                         indent=2, ensure_ascii=False))
+    else:
+        print(f"Index IOC chargé depuis : {args.db_path}")
+        print(f"  Total       : {total}")
+        print(f"  Hashes      : {stats['hashes']} (MalwareBazaar + ThreatFox)")
+        print(f"  Hostnames   : {stats['hostnames']} (URLhaus + ThreatFox)")
+        print(f"  URLs        : {stats['urls']} (URLhaus)")
+        print(f"  IPs         : {stats['ips']} (ThreatFox)")
+        if total == 0:
+            print("\nAucun IOC chargé. Lance : biocybe intel update --source all")
+    return 0 if total > 0 else 1
+
+
 def cmd_intel_rules_verify(args: argparse.Namespace) -> int:
     from .intel import verify_source
 
@@ -1114,6 +1196,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "Le rapport indique ce qui aurait été fait. Obligatoire en évaluation SOC.",
     )
     scan_p.add_argument("--json", action="store_true", help="Sortie JSON au lieu du rapport texte")
+    scan_p.add_argument(
+        "--network-scan",
+        action="store_true",
+        help="Phase 3.e : cherche aussi des IOCs réseau (URLs/IPs/hosts/hashes) "
+        "dans le contenu des fichiers, depuis les feeds URLhaus + ThreatFox. "
+        "Nécessite `biocybe intel update` au préalable.",
+    )
 
     # ---------------- quarantine ----------------
     q_p = subparsers.add_parser(
@@ -1248,6 +1337,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Supprime le cache existant avant recompilation",
     )
     rules_cache.add_argument("--json", action="store_true")
+
+    # Phase 3.e : lookup IOC + stats des feeds chargés en mémoire
+    intel_lookup_p = intel_sub.add_parser(
+        "lookup",
+        help="Cherche une valeur (hash/host/url/ip) dans les feeds IOC indexés",
+    )
+    intel_lookup_p.add_argument(
+        "value",
+        help="Valeur à chercher (hash, hostname, URL, IP — type auto-détecté)",
+    )
+    intel_lookup_p.add_argument(
+        "--type",
+        choices=["auto", "hash", "hostname", "url", "ip"],
+        default="auto",
+        help="Force le type d'IOC (défaut : auto-détection)",
+    )
+    intel_lookup_p.add_argument(
+        "--db-path",
+        default="db/signatures",
+        help="Dossier signatures (défaut : db/signatures)",
+    )
+    intel_lookup_p.add_argument("--json", action="store_true")
+
+    intel_stats_p = intel_sub.add_parser(
+        "stats",
+        help="Affiche les compteurs IOC chargés depuis les feeds locaux",
+    )
+    intel_stats_p.add_argument(
+        "--db-path",
+        default="db/signatures",
+        help="Dossier signatures (défaut : db/signatures)",
+    )
+    intel_stats_p.add_argument("--json", action="store_true")
 
     # ---------------- tcell (Lymphocyte T — détection comportementale ML) -----
     tcell_p = subparsers.add_parser(
@@ -1447,6 +1569,10 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_intel_rules_verify(args)
             if args.rules_command == "build-cache":
                 return cmd_intel_rules_build_cache(args)
+        if args.intel_command == "lookup":
+            return cmd_intel_lookup(args)
+        if args.intel_command == "stats":
+            return cmd_intel_stats(args)
     if args.command == "tcell":
         if args.tcell_command == "train":
             return cmd_tcell_train(args)
