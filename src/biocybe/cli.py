@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -960,6 +961,205 @@ def cmd_intel_stats(args: argparse.Namespace) -> int:
     return 0 if total > 0 else 1
 
 
+def _format_netmon_record(r) -> str:
+    """Formate une ConnectionRecord en ligne lisible CLI."""
+    marker = "!! IOC " if r.is_malicious else "   ok  "
+    base = (
+        f"{marker} pid={r.pid or '?':>6} {r.process_name[:24]:<24} "
+        f"-> {r.raddr:<22} [{r.status}]"
+    )
+    if r.is_malicious and r.hit is not None:
+        base += (
+            f"  | {r.hit.source} malware={r.hit.malware} conf={r.hit.confidence}"
+        )
+    if r.reverse_dns:
+        base += f"  ({r.reverse_dns})"
+    return base
+
+
+def cmd_netmon_scan(args: argparse.Namespace) -> int:
+    """Snapshot ponctuel des connexions sortantes (Phase 3.f)."""
+    from .intel.ioc_lookup import IOCLookup
+    from .network_monitor import NetworkMonitor
+
+    lookup = IOCLookup.from_db(args.db_path)
+    if lookup.total == 0:
+        print(
+            "Aucun IOC charge. Lance d'abord : biocybe intel update --source all",
+            file=sys.stderr,
+        )
+        return 2
+
+    monitor = NetworkMonitor(lookup, reverse_dns=args.reverse_dns)
+    records = monitor.snapshot()
+
+    malicious = [r for r in records if r.is_malicious]
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "total_connections": len(records),
+                    "malicious_count": len(malicious),
+                    "ioc_lookup_total": lookup.total,
+                    "records": [r.to_dict() for r in (records if args.all else malicious)],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(f"BioCybe netmon scan — {len(records)} connexion(s) sortante(s) observee(s)")
+        print(f"  IOCs charges : {lookup.total}")
+        print(f"  Matchs       : {len(malicious)}")
+        print("-" * 90)
+        to_show = records if args.all else malicious
+        if not to_show:
+            print("(aucune connexion a afficher — utilise --all pour tout voir)")
+        for r in to_show:
+            print(_format_netmon_record(r))
+
+    return 1 if malicious else 0
+
+
+def cmd_netmon_watch(args: argparse.Namespace) -> int:
+    """Surveillance continue (Phase 3.f)."""
+    import signal as _signal
+
+    from .intel.ioc_lookup import IOCLookup
+    from .network_monitor import NetworkMonitor
+
+    lookup = IOCLookup.from_db(args.db_path)
+    if lookup.total == 0:
+        print(
+            "Aucun IOC charge. Lance d'abord : biocybe intel update --source all",
+            file=sys.stderr,
+        )
+        return 2
+
+    def _on_match(r):
+        ts = datetime.now().isoformat(timespec="seconds")
+        print(f"[{ts}] {_format_netmon_record(r)}", flush=True)
+
+    monitor = NetworkMonitor(
+        lookup,
+        interval=args.interval,
+        reverse_dns=args.reverse_dns,
+        on_match=_on_match,
+    )
+
+    stop_event = threading.Event()
+
+    def _signal_handler(signum, frame):
+        print("\nArret demande, fermeture du monitor...", file=sys.stderr)
+        stop_event.set()
+
+    _signal.signal(_signal.SIGINT, _signal_handler)
+    if hasattr(_signal, "SIGTERM"):
+        _signal.signal(_signal.SIGTERM, _signal_handler)
+
+    monitor.start()
+    print(
+        f"BioCybe netmon watch demarre (intervalle {args.interval}s, "
+        f"{lookup.total} IOCs). Ctrl+C pour arreter.",
+        file=sys.stderr,
+    )
+    try:
+        while not stop_event.is_set():
+            stop_event.wait(timeout=1.0)
+    finally:
+        monitor.stop()
+    return 0
+
+
+def cmd_netmon_block_apply(args: argparse.Namespace) -> int:
+    """Sinkhole DNS via fichier hosts (Phase 3.f)."""
+    from .intel.ioc_lookup import IOCLookup
+    from .network_monitor import HostsBlocker
+
+    if not args.yes:
+        print(
+            "Refus : mutation du fichier hosts requiert --yes (confirmation explicite).\n"
+            "  Cette commande ajoute une section BioCybe redirigeant les hostnames\n"
+            "  malveillants vers 0.0.0.0. Elle est reversible via `netmon block clear`.",
+            file=sys.stderr,
+        )
+        return 2
+
+    lookup = IOCLookup.from_db(args.db_path)
+    if lookup.total == 0:
+        print(
+            "Aucun IOC charge. Lance d'abord : biocybe intel update --source all",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Filtre par confidence minimal — pas question de sinkholer en
+    # production des hostnames a 30/100
+    min_conf = int(args.min_confidence)
+    candidates: list[str] = []
+    for host, meta in lookup._hostnames.items():  # accès interne assumé
+        if int(meta.get("confidence", 0) or 0) >= min_conf:
+            candidates.append(host)
+
+    blocker = HostsBlocker(Path(args.hosts_path) if args.hosts_path else None)
+    try:
+        stats = blocker.apply(candidates)
+    except PermissionError as exc:
+        print(
+            f"Permission denied : {exc}\n"
+            f"  Le fichier {blocker.hosts_path} requiert root/admin.",
+            file=sys.stderr,
+        )
+        return 3
+
+    print(f"Section BioCybe ecrite dans {blocker.hosts_path}")
+    print(f"  Sinkholes : {len(stats.blocked)}")
+    if stats.skipped_invalid:
+        print(f"  Invalides (skip) : {len(stats.skipped_invalid)}")
+    if stats.capped:
+        print(f"  Limite atteinte : {len(stats.blocked)} entrees (cap anti-DoS)")
+    print(f"  Backup : {blocker.backup_path}")
+    print("  Pour annuler : biocybe netmon block clear --yes")
+    return 0
+
+
+def cmd_netmon_block_clear(args: argparse.Namespace) -> int:
+    from .network_monitor import HostsBlocker
+
+    if not args.yes:
+        print("Refus : retrait de section requiert --yes", file=sys.stderr)
+        return 2
+    blocker = HostsBlocker(Path(args.hosts_path) if args.hosts_path else None)
+    try:
+        removed = blocker.clear()
+    except PermissionError as exc:
+        print(f"Permission denied : {exc}", file=sys.stderr)
+        return 3
+    print(f"Section BioCybe retiree de {blocker.hosts_path} ({removed} entrees)")
+    return 0
+
+
+def cmd_netmon_block_status(args: argparse.Namespace) -> int:
+    from .network_monitor import HostsBlocker
+
+    blocker = HostsBlocker(Path(args.hosts_path) if args.hosts_path else None)
+    info = blocker.status()
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+    else:
+        print(f"Fichier hosts : {info['hosts_path']}")
+        print(f"  Existe       : {info['exists']}")
+        print(f"  Writable     : {info['writable']}")
+        print(f"  Entrees BioCybe : {info['blocked_count']}")
+        if info["blocked_sample"]:
+            print("  Exemple (5 premiers) :")
+            for h in info["blocked_sample"]:
+                print(f"    - {h}")
+        print(f"  Backup       : {info['backup_exists']}")
+    return 0
+
+
 def cmd_intel_rules_verify(args: argparse.Namespace) -> int:
     from .intel import verify_source
 
@@ -1479,6 +1679,82 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Utilise le serveur Flask de dev (PAS de prod, single-thread)",
     )
 
+    # ---------------- netmon (Phase 3.f — surveillance connexions live) ------
+    netmon_p = subparsers.add_parser(
+        "netmon",
+        help="Surveille les connexions reseau sortantes contre les feeds IOC",
+    )
+    netmon_sub = netmon_p.add_subparsers(dest="netmon_command", required=True)
+
+    netmon_scan = netmon_sub.add_parser(
+        "scan", help="Snapshot ponctuel : connexions sortantes + lookup IOC"
+    )
+    netmon_scan.add_argument(
+        "--db-path", default="db/signatures", help="Dossier signatures (defaut: db/signatures)"
+    )
+    netmon_scan.add_argument(
+        "--reverse-dns",
+        action="store_true",
+        help="Active reverse DNS sur les IPs sans match direct (lent mais enrichit)",
+    )
+    netmon_scan.add_argument(
+        "--all",
+        action="store_true",
+        help="Affiche TOUTES les connexions, pas seulement les IOCs (mode debug)",
+    )
+    netmon_scan.add_argument("--json", action="store_true")
+
+    netmon_watch = netmon_sub.add_parser(
+        "watch",
+        help="Surveillance continue. Ctrl+C pour arreter.",
+    )
+    netmon_watch.add_argument("--db-path", default="db/signatures")
+    netmon_watch.add_argument(
+        "--interval", type=float, default=5.0, help="Intervalle entre polls (defaut 5.0s)"
+    )
+    netmon_watch.add_argument("--reverse-dns", action="store_true")
+
+    netmon_block_p = netmon_sub.add_parser(
+        "block",
+        help="Sinkhole DNS via fichier hosts (necessite root/admin)",
+    )
+    netmon_block_sub = netmon_block_p.add_subparsers(dest="block_command", required=True)
+
+    block_apply = netmon_block_sub.add_parser(
+        "apply", help="Ecrit les hostnames des feeds dans /etc/hosts (sinkhole 0.0.0.0)"
+    )
+    block_apply.add_argument(
+        "--db-path", default="db/signatures", help="Dossier signatures (defaut: db/signatures)"
+    )
+    block_apply.add_argument(
+        "--hosts-path",
+        default=None,
+        help="Override du fichier hosts (defaut: /etc/hosts ou %SystemRoot%\\System32\\drivers\\etc\\hosts)",
+    )
+    block_apply.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirme la mutation du fichier hosts (obligatoire)",
+    )
+    block_apply.add_argument(
+        "--min-confidence",
+        type=int,
+        default=75,
+        help="Confidence min des IOCs a sinkholer (defaut 75/100)",
+    )
+
+    block_clear = netmon_block_sub.add_parser(
+        "clear", help="Retire la section BioCybe du fichier hosts"
+    )
+    block_clear.add_argument("--hosts-path", default=None)
+    block_clear.add_argument("--yes", action="store_true")
+
+    block_status = netmon_block_sub.add_parser(
+        "status", help="Affiche l'etat actuel de la section BioCybe"
+    )
+    block_status.add_argument("--hosts-path", default=None)
+    block_status.add_argument("--json", action="store_true")
+
     # ---------------- notify (Phase 2.3.b — webhooks sortants) ---------------
     notify_p = subparsers.add_parser(
         "notify",
@@ -1573,6 +1849,18 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_lookup(args)
         if args.intel_command == "stats":
             return cmd_intel_stats(args)
+    if args.command == "netmon":
+        if args.netmon_command == "scan":
+            return cmd_netmon_scan(args)
+        if args.netmon_command == "watch":
+            return cmd_netmon_watch(args)
+        if args.netmon_command == "block":
+            if args.block_command == "apply":
+                return cmd_netmon_block_apply(args)
+            if args.block_command == "clear":
+                return cmd_netmon_block_clear(args)
+            if args.block_command == "status":
+                return cmd_netmon_block_status(args)
     if args.command == "tcell":
         if args.tcell_command == "train":
             return cmd_tcell_train(args)

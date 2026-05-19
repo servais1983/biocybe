@@ -5,6 +5,94 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.f : surveillance live des connexions sortantes + sinkhole DNS
+
+Couche temps-réel qui complète la sentinelle statique de la Phase 3.e.
+La 3.e détecte les IOCs **mentionnés** dans un fichier (avant
+exécution). La 3.f détecte les IOCs **effectivement contactés** par
+des processus en cours d'exécution.
+
+#### Architecture (volontairement simple et cross-platform)
+
+- **Pas de pcap** : libpcap est lourde et root-only sur la plupart des
+  OS. Pas de capture promiscuous. Pas d'eBPF (Linux-only).
+- **Polling `psutil.net_connections('inet')`** : déjà une dépendance
+  BioCybe, marche identique sur Linux/Windows/macOS, polling 1-5 s
+  configurable. Trade-off assumé : on peut manquer une connexion de
+  100 ms, mais le coût/bénéfice est bon pour un SOC qui veut un
+  signal stable et déployable partout.
+- **Privilege detection** : root/admin pour voir TOUS les processus.
+  Sans, on ne voit que ceux de l'utilisateur courant. Warning explicite
+  au démarrage.
+
+#### Nouveau module
+
+- **`biocybe.network_monitor.NetworkMonitor`** :
+  - `snapshot()` — one-shot, retourne `list[ConnectionRecord]` avec
+    PID, process name/exe, raddr, status, reverse-DNS optionnel, hit
+    IOC si match
+  - `start()` / `stop()` — surveillance continue dans thread daemon,
+    callback `on_match(record)` pour chaque IOC détecté
+  - Rate-limit anti-storm : max N alertes par `(pid, remote_ip)` par
+    heure (défaut 6). Une connexion qui rouvre 1000x en 1 min ne
+    spamme pas le NotifierManager.
+  - Filtre auto : loopback, link-local, multicast, unspecified — pas
+    d'IOC plausible là, pas de match inutile
+  - `AccessDenied` géré proprement (log + return [], pas de crash)
+
+- **`biocybe.network_monitor.HostsBlocker`** :
+  - Sinkhole DNS : ajoute des entrées `0.0.0.0 <hostname>` dans le
+    fichier hosts (`/etc/hosts` ou
+    `C:\Windows\System32\drivers\etc\hosts`)
+  - Section délimitée par marqueurs (`# BIOCYBE-IOC-BLOCK START/END`)
+    pour retrait propre — n'écrase JAMAIS le reste du fichier
+  - Backup automatique avant la 1re mutation (`hosts.biocybe.bak`)
+  - **Écriture atomique** : tempfile + `os.replace` — pas de hosts
+    cassé en cas d'interruption
+  - Validation stricte des hostnames : refus de wildcards, newlines
+    (injection), labels mono, localhost, leading/trailing dot
+  - Cap `MAX_HOSTS_ENTRIES = 50_000` — anti-DoS du fichier hosts
+  - `apply(list)` / `clear()` / `list_blocked()` / `status()`
+
+#### CLI
+
+  - `biocybe netmon scan [--all] [--reverse-dns] [--json]` —
+    snapshot ponctuel. Exit 1 si au moins un IOC trouvé.
+  - `biocybe netmon watch [--interval 5] [--reverse-dns]` —
+    surveillance continue. Ctrl+C / SIGTERM → arrêt propre.
+  - `biocybe netmon block apply --yes [--min-confidence 75]` —
+    sinkhole tous les hostnames du lookup avec confidence ≥ seuil.
+    Refus si `--yes` absent (mutation système irréversible sans
+    consentement explicite).
+  - `biocybe netmon block clear --yes` — retire la section.
+  - `biocybe netmon block status [--json]` — état actuel.
+
+#### Tests (`tests/test_network_monitor.py`, 21 tests)
+
+  - Snapshot : match IOC connu, ignore loopback/link-local/multicast,
+    ignore sockets LISTEN, AccessDenied → pas de crash
+  - Rate-limit anti-storm : `_should_alert` bloque après N
+  - Thread continu : callback `on_match` invoqué pour les hits
+  - HostsBlocker : apply/clear/list/status, idempotent, backup créé,
+    validation rejette wildcards/newlines/localhost/mono-label, apply
+    vide retire la section, écrasement n'affecte pas le reste du
+    fichier
+  - CLI : exit codes 0/1/2 corrects, JSON parseable, `--yes` requis
+    pour les mutations
+
+#### Quand l'utiliser
+
+  - **`netmon scan` planifié toutes les 5 min** via cron/k8s CronJob,
+    avec sortie JSON consommée par votre SIEM (Splunk, Wazuh, ELK).
+    Donne une visibilité passive sur les processus qui parlent à des
+    IOCs connus, sans modifier le réseau.
+  - **`netmon watch` dans le daemon BioCybe** pour réagir en
+    temps-réel : on_match wired vers NotifierManager → Slack/syslog.
+  - **`netmon block apply` en EDR-light** sur postes utilisateurs :
+    sinkhole DNS coupe l'accès aux C2 connus avant même que le
+    malware tente de résoudre le hostname. Réversible, traçable
+    (backup), borné (50k entries cap).
+
 ### Phase 3.e : sentinelle réseau IOC-aware
 
 Exploite les feeds de la Phase 3.d (URLhaus + ThreatFox) pour détecter

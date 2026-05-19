@@ -78,6 +78,19 @@ biocybe scan ./dossier --network-scan                  # signale URLs/IPs/hashes
 biocybe scan ./dossier --network-scan --quarantine     # + quarantine si IOC trouvé
 biocybe scan ./email.eml --network-scan --json         # parse les liens d'un mail suspicieux
 
+# --- Surveillance live des connexions sortantes (Phase 3.f) ---
+biocybe netmon scan                        # snapshot one-shot : connexions actives vs IOCs
+biocybe netmon scan --all --json           # toutes les connexions (mode debug)
+biocybe netmon scan --reverse-dns          # + résolution PTR pour enrichir
+biocybe netmon watch --interval 5          # surveillance continue, Ctrl+C pour stopper
+# → root/admin pour voir TOUS les processus ; sinon seulement les vôtres
+
+# --- Sinkhole DNS via fichier hosts (Phase 3.f, opt-in) ---
+sudo biocybe netmon block status           # voir si une section BioCybe est active
+sudo biocybe netmon block apply --yes --min-confidence 75   # sinkhole tous les hostnames conf≥75
+sudo biocybe netmon block clear --yes                       # retire la section, restaure le hosts
+# → écriture atomique, backup automatique (.biocybe.bak), section délimitée, réversible
+
 # --- Règles YARA communautaires (opt-in) ---
 biocybe intel rules list                   # voir les sources disponibles
 biocybe intel rules update --source signature-base --yes --verify
@@ -182,6 +195,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.c** K8s readiness probe réel | ✅ | `/readyz` (no auth, K8s-compatible) fait 4 checks réels : `quarantine_dir` writable, `rules_yara_compilable` (cache ou sources), `metrics` (prometheus OK), `auth` (token configuré + ≥16 chars). Retourne 200 ou 503 avec diagnostic détaillé |
 | **3.d** Threat intel multi-source (URLhaus + ThreatFox) | ✅ | Feeds abuse.ch supplémentaires : URLhaus (URLs malveillantes 24h, CSV public sans auth, hostname index) + ThreatFox (IOCs structurés C2/payload/botnet, JSON Auth-Key, index `by_type/{hash,url,domain,ip}.json` pour lookup O(1)). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. 16 tests (8 par feed, mocks API complets) |
 | **3.e** Sentinelle réseau IOC-aware | ✅ | `IOCLookup` charge les feeds en mémoire (lookup O(1) hash/host/url/ip avec fallback parent domain). `NetworkSentinel` extrait URLs/IPs/hosts/hashes du contenu fichier (regex ASCII anti-binaire, denylist 30+ TLDs courants anti-FP, dédup, cap 50MB). Intégré au scanner via `--network-scan`. CLI `biocybe intel lookup <value>` et `intel stats`. 23 tests |
+| **3.f** Surveillance live + sinkhole DNS | ✅ | `NetworkMonitor` polling `psutil.net_connections('inet')` (cross-platform, pas de pcap/eBPF), match remote IP/host contre `IOCLookup`, callback `on_match`, rate-limit anti-storm (N alertes/clé/heure), filtre loopback/link-local/multicast, reverse DNS optionnel. `HostsBlocker` : sinkhole DNS via section marquée du fichier hosts (écriture atomique, backup auto, validation stricte hostnames, cap 50k entrées). CLI `biocybe netmon {scan,watch}` + `netmon block {apply,clear,status}`. 21 tests |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 
