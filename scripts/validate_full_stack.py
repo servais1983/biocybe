@@ -50,14 +50,20 @@ def main() -> int:
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True)
 
-    # Copie UNIQUEMENT les règles natives (eicar + ransomware).
-    # Les 748 règles communautaires Florian Roth prennent ~1min15 à
-    # compiler sur Windows avec Defender actif (mesuré V5 v1). Pour
-    # la validation rapide on s'en passe — EICAR suffit comme IOC test.
-    # Issue perf à traiter en Phase 3 : cache yara.compile().save_to_file().
+    # Copie rules natives + community si présentes.
+    # Phase 3.a : grâce au cache `compiled.yarc`, le 2e démarrage est
+    # rapide même avec 748 règles communautaires (mesuré ~50 ms vs
+    # ~1m15 sans cache sur Windows + Defender).
     (workdir / "rules" / "yara").mkdir(parents=True)
     for r in (ROOT / "rules" / "yara").glob("*.yar"):
         (workdir / "rules" / "yara" / r.name).write_bytes(r.read_bytes())
+    if os.environ.get("V5_WITH_COMMUNITY") == "1":
+        community = ROOT / "rules" / "yara" / "community"
+        if community.is_dir():
+            for sub in community.iterdir():
+                if sub.is_dir():
+                    shutil.copytree(sub, workdir / "rules" / "yara" / "community" / sub.name)
+            print("[V5] Community rules activées (V5_WITH_COMMUNITY=1)")
 
     watched = workdir / "watched"
     watched.mkdir()
@@ -129,7 +135,10 @@ cells:
         # des fichiers avant qu'ils ne soient observés.
         biocybe_log_path = workdir / "biocybe.log"
         watcher_ready = False
-        startup_deadline = time.time() + 120  # 2 min max init
+        # Avec 748 community rules + Defender Windows, le COLD start
+        # peut prendre 2-3 min (compile YARA mode tolérant). Au WARM
+        # start (cache .yarc présent), c'est < 5s.
+        startup_deadline = time.time() + 240  # 4 min max init (cold worst case)
         print("[V5] Attente démarrage watcher (max 120s)...")
         while time.time() < startup_deadline:
             if proc.poll() is not None:

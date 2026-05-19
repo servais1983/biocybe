@@ -82,8 +82,94 @@ class SignatureDatabase:
         except Exception as e:
             logger.error(f"Erreur lors du chargement de la base de données: {e}")
 
+    # Fichiers du cache de compilation. Le cache est invalidé si la liste
+    # des sources ou leurs mtimes changent (Phase 3.a).
+    _CACHE_BINARY = "compiled.yarc"
+    _CACHE_FINGERPRINT = "compiled.fingerprint.json"
+
+    def _compute_rules_fingerprint(self, rule_files: list[str]) -> str:
+        """Empreinte SHA-256 stable des sources : noms triés + mtimes + sizes.
+
+        Inclut la version yara pour invalider le cache si la lib change
+        (un .yarc compilé avec yara 4.5 ne peut pas être chargé par 4.3).
+        """
+        h = hashlib.sha256()
+        h.update(f"yara_version={yara.__version__}\n".encode())
+        for path in sorted(rule_files):
+            try:
+                st = os.stat(path)
+                h.update(f"{path}|{st.st_size}|{int(st.st_mtime * 1000)}\n".encode())
+            except OSError as exc:
+                # fichier inaccessible : on incorpore l'erreur dans le hash
+                # → cache invalidé si on retrouve / perd l'accès
+                h.update(f"{path}|ERROR:{exc}\n".encode())
+        return h.hexdigest()
+
+    def _try_load_cache(self, rule_files: list[str]) -> bool:
+        """Si un cache valide existe pour ce set de sources, le charger."""
+        cache_bin = os.path.join(self.yara_rules_path, self._CACHE_BINARY)
+        cache_fp = os.path.join(self.yara_rules_path, self._CACHE_FINGERPRINT)
+        if not (os.path.isfile(cache_bin) and os.path.isfile(cache_fp)):
+            return False
+        try:
+            with open(cache_fp, encoding="utf-8") as f:
+                stored = json.load(f)
+            current_fp = self._compute_rules_fingerprint(rule_files)
+            if stored.get("fingerprint") != current_fp:
+                logger.info(
+                    "Cache YARA obsolète (fingerprint diff) — recompilation."
+                )
+                return False
+            t0 = time.time()
+            self.rules = yara.load(cache_bin)
+            logger.info(
+                "Cache YARA chargé en %.2fs (%d sources, dont %d ignorées)",
+                time.time() - t0,
+                stored.get("source_count", 0),
+                stored.get("skipped_count", 0),
+            )
+            return True
+        except (OSError, ValueError, yara.Error) as exc:
+            logger.warning("Cache YARA illisible (%s) — recompilation.", exc)
+            return False
+
+    def _save_cache(self, rule_files: list[str], skipped_count: int) -> None:
+        """Sauvegarde le binaire YARA compilé + son empreinte source."""
+        if self.rules is None:
+            return
+        cache_bin = os.path.join(self.yara_rules_path, self._CACHE_BINARY)
+        cache_fp = os.path.join(self.yara_rules_path, self._CACHE_FINGERPRINT)
+        try:
+            self.rules.save(cache_bin)
+            fingerprint = self._compute_rules_fingerprint(rule_files)
+            with open(cache_fp, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "fingerprint": fingerprint,
+                        "source_count": len(rule_files),
+                        "skipped_count": skipped_count,
+                        "yara_version": yara.__version__,
+                        "saved_at": datetime.now().isoformat(),
+                    },
+                    f,
+                    indent=2,
+                )
+            logger.debug("Cache YARA sauvegardé : %s", cache_bin)
+        except (OSError, yara.Error) as exc:
+            logger.warning(
+                "Sauvegarde du cache YARA échouée (non-fatal) : %s", exc
+            )
+
     def _compile_yara_rules(self):
         """Compile les règles YARA dans le répertoire spécifié.
+
+        Cache de compilation (Phase 3.a) :
+          - Si `<dir>/compiled.yarc` + `compiled.fingerprint.json` sont
+            cohérents avec les sources actuelles (mêmes fichiers, mêmes
+            mtimes, même version yara), on charge le binaire compilé
+            directement → ~50 ms au lieu de ~1m15 sur 748 règles
+            communautaires (mesuré Phase VALIDATION V5).
+          - Sinon, recompilation classique (mode tolérant).
 
         Tolère les fichiers cassés : si la compilation groupée échoue,
         on retombe sur une compilation fichier par fichier et on ne
@@ -101,11 +187,16 @@ class SignatureDatabase:
                 logger.warning(f"Aucun fichier de règles YARA trouvé dans {self.yara_rules_path}")
                 return
 
+            # Cache hit ? On ressort tout de suite.
+            if self._try_load_cache(rule_files):
+                return
+
             # Tentative 1 : compilation groupée (rapide, cas nominal)
             try:
                 filepaths = {f"rule_{i}": path for i, path in enumerate(rule_files)}
                 self.rules = yara.compile(filepaths=filepaths)
                 logger.info(f"Compilation de {len(rule_files)} fichiers de règles YARA")
+                self._save_cache(rule_files, skipped_count=0)
                 return
             except yara.SyntaxError as exc:
                 logger.warning(
@@ -116,11 +207,13 @@ class SignatureDatabase:
 
             # Tentative 2 : on garde seulement les fichiers qui compilent
             valid = {}
+            skipped = 0
             for i, path in enumerate(rule_files):
                 try:
                     yara.compile(filepath=path)
                 except yara.SyntaxError as exc:
                     logger.error("Règle YARA ignorée (%s) : %s", path, exc)
+                    skipped += 1
                     continue
                 valid[f"rule_{i}"] = path
 
@@ -135,6 +228,7 @@ class SignatureDatabase:
                 len(valid),
                 len(rule_files),
             )
+            self._save_cache(rule_files, skipped_count=skipped)
 
         except Exception as e:
             logger.error(f"Erreur lors de la compilation des règles YARA: {e}")

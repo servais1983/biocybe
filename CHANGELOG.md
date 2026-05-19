@@ -5,6 +5,39 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.a : cache de compilation YARA (.yarc) — speedup x1626
+
+Résout le bug perf 8 trouvé en Phase VALIDATION V5 : le daemon prenait
+5 min à démarrer sur Windows avec les 748 règles communautaires +
+Defender actif. Maintenant **~200 ms au 2e démarrage**.
+
+#### Comment ça marche
+
+- `SignatureDatabase._compile_yara_rules` calcule un **fingerprint
+  SHA-256** des fichiers sources (noms triés + tailles + mtimes + version
+  yara). Inclus la version yara pour invalider le cache si la lib
+  change.
+- Si `<db>/compiled.yarc` + `compiled.fingerprint.json` existent et
+  matchent le fingerprint actuel → `yara.load(compiled.yarc)` (~30 ms).
+- Sinon, compilation normale (groupée puis tolérante en fallback) +
+  `rules.save(compiled.yarc)` + sérialisation du fingerprint.
+- Le cache est **automatiquement invalidé** si :
+  - Un fichier .yar/.yara est ajouté, modifié, supprimé
+  - La version de yara-python change
+  - `compiled.yarc` est corrompu (catch `yara.Error` → fallback recompile)
+
+#### Mesures réelles (validate_cache_speedup.py)
+
+  - **Cold start** (compile + save) : 311 s (Windows + Defender, 744 règles)
+  - **Warm start** (load cache) : 0.19 s (191 ms total daemon ready)
+  - **Speedup : x1626**
+  - Cache `.yarc` : ~30 MB pour 731/744 règles valides
+
+Tests : 8 tests unitaires (`tests/test_yara_cache.py`) couvrant cache
+miss, cache hit, invalidation après modification/ajout/suppression de
+source, fallback sur cache corrompu, équivalence des détections
+cold vs warm.
+
 ### Phase VALIDATION : audit conditions réelles + fixes bugs critiques découverts
 
 Suite à la consigne user "jamais de mode démo, que du réel", 5 batteries

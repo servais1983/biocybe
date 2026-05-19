@@ -189,16 +189,20 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
   - `validate_watcher_batch.py` — 1000 fichiers créés en rafale dans
     le dossier surveillé. Vérifie 100% recall sur IOCs, 0% FP,
     latence p99 < 5s, 0 perte d'événement.
-  - `validate_full_stack.py [DAEMON_VALIDATION_DURATION=300]` — daemon
-    complet avec cells + watcher + audit + auto-quarantine. Injecte des
-    IOCs périodiquement, vérifie quarantaine + audit chaîne SHA-256.
+  - `validate_full_stack.py [DAEMON_VALIDATION_DURATION=300]
+    [V5_WITH_COMMUNITY=1]` — daemon complet avec cells + watcher +
+    auto-quarantine. Injecte des IOCs périodiquement, vérifie
+    quarantaine + audit chaîne SHA-256.
+  - `validate_cache_speedup.py` — mesure cold/warm startup daemon avec
+    les 748 community rules. Critère : warm < 10s (mesure réelle x1626
+    speedup grâce au cache `compiled.yarc` ajouté en Phase 3.a).
 
 ## 7. Pièges connus / dette technique
 
-- **Compilation YARA des 748 règles communautaires prend ~1m15 sur
-  Windows + Defender actif** (mesuré Phase VALIDATION V5). Pour la
-  prod : implémenter `yara.compile().save_to_file()` qui cache le
-  binaire compilé, recharge en <100 ms. À traiter en Phase 3.
+- ~~Compilation YARA des 748 règles communautaires prend ~1m15 sur
+  Windows + Defender actif~~ ✅ **résolu Phase 3.a** : cache
+  `compiled.yarc` invalidé par fingerprint des sources (mtime+size+yara
+  version). Cold 311s, warm 0.19s. Mesure x1626 speedup.
 - Le daemon ne quarantine pas en mode `--watch` si le watcher n'a pas
   fini de démarrer (compilation YARA en cours). Fix : ne pas signaler
   "Système démarré" avant que `watcher.start()` retourne ; faire

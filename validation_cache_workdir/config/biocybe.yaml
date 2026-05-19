@@ -1,0 +1,12 @@
+
+core:
+  state_save_interval: 9999
+  log_level: INFO
+cells:
+  autoload: true
+  enabled_types: [b_cell]
+  b_cell:
+    instances:
+      - name: b_cell_main
+        config:
+          db_path: db/signatures
