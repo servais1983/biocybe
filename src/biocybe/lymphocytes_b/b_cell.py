@@ -116,9 +116,7 @@ class SignatureDatabase:
                 stored = json.load(f)
             current_fp = self._compute_rules_fingerprint(rule_files)
             if stored.get("fingerprint") != current_fp:
-                logger.info(
-                    "Cache YARA obsolète (fingerprint diff) — recompilation."
-                )
+                logger.info("Cache YARA obsolète (fingerprint diff) — recompilation.")
                 return False
             t0 = time.time()
             self.rules = yara.load(cache_bin)
@@ -156,9 +154,7 @@ class SignatureDatabase:
                 )
             logger.debug("Cache YARA sauvegardé : %s", cache_bin)
         except (OSError, yara.Error) as exc:
-            logger.warning(
-                "Sauvegarde du cache YARA échouée (non-fatal) : %s", exc
-            )
+            logger.warning("Sauvegarde du cache YARA échouée (non-fatal) : %s", exc)
 
     def _compile_yara_rules(self):
         """Compile les règles YARA dans le répertoire spécifié.

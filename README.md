@@ -165,6 +165,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.4.c** Supply chain hardening | ✅ | SBOM SPDX + CycloneDX via syft, scan vulnérabilités via grype, pip-audit strict, SECURITY.md, tous les artefacts archivés 30j par run CI |
 | **3.a** Cache compilation YARA | ✅ | Cache `compiled.yarc` avec fingerprint SHA-256 des sources. Mesure réelle Windows + Defender + 748 règles : cold 311s → warm 0.19s (**speedup x1626**) |
 | **3.b** Pré-compile cache au build | ✅ | CLI `biocybe intel rules build-cache` + intégration `Dockerfile` (build stage). Image Docker démarre en ~200 ms même au 1er run |
+| **3.c** K8s readiness probe réel | ✅ | `/readyz` (no auth, K8s-compatible) fait 4 checks réels : `quarantine_dir` writable, `rules_yara_compilable` (cache ou sources), `metrics` (prometheus OK), `auth` (token configuré + ≥16 chars). Retourne 200 ou 503 avec diagnostic détaillé |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 

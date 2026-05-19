@@ -809,19 +809,23 @@ def cmd_intel_rules_build_cache(args: argparse.Namespace) -> int:
     size_kb = cache_bin.stat().st_size / 1024
     if args.json:
         meta = json.loads(cache_fp.read_text(encoding="utf-8"))
-        print(json.dumps(
-            {
-                "duration_s": round(duration, 2),
-                "cache_bin": str(cache_bin),
-                "cache_size_kb": round(size_kb, 1),
-                **meta,
-            },
-            indent=2, ensure_ascii=False,
-        ))
+        print(
+            json.dumps(
+                {
+                    "duration_s": round(duration, 2),
+                    "cache_bin": str(cache_bin),
+                    "cache_size_kb": round(size_kb, 1),
+                    **meta,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print(f"\nCache compilé en {duration:.1f}s : {cache_bin} ({size_kb:.0f} KB)")
-        print(f"Au prochain démarrage du daemon, chargement en ~50 ms (au lieu de "
-              f"{duration:.0f}s).")
+        print(
+            f"Au prochain démarrage du daemon, chargement en ~50 ms (au lieu de {duration:.0f}s)."
+        )
     return 0
 
 
@@ -1174,15 +1178,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Pré-compile le cache YARA (compiled.yarc) pour démarrage rapide",
     )
     rules_cache.add_argument(
-        "--db-path", default="db/signatures",
+        "--db-path",
+        default="db/signatures",
         help="Dossier signatures (défaut : db/signatures)",
     )
     rules_cache.add_argument(
-        "--skip-sync", action="store_true",
+        "--skip-sync",
+        action="store_true",
         help="Ne pas re-sync depuis rules/yara/ (juste compile ce qui est en db/)",
     )
     rules_cache.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Supprime le cache existant avant recompilation",
     )
     rules_cache.add_argument("--json", action="store_true")

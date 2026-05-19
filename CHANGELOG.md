@@ -5,6 +5,67 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.c : readiness probe Kubernetes réel sur `/readyz`
+
+Refactor de `/readyz` qui retournait juste `{"status": "ready"}` sans
+vraiment vérifier la santé de l'app. Maintenant : 4 checks réels avec
+diagnostic détaillé, **utilisable comme readinessProbe Kubernetes**.
+
+#### Changements
+
+- **`/readyz` ne demande plus de Bearer token** (compatible
+  K8s/sidecar/load balancer healthchecks sans secret).
+- Retourne **HTTP 200** si tous les checks passent, **HTTP 503** sinon.
+- Body JSON détaillé pour debugging :
+  `{"status": "ready"|"not_ready", "uptime_seconds": N, "checks": {...}}`
+
+#### Checks effectués
+
+  - `quarantine_dir` : existe et writable (ou parent writable si pas
+    encore créé — la quarantaine est créée au 1er match)
+  - `rules_yara_compilable` : cache `.yarc` présent OU au moins 1 .yar
+    source. Cherche dans plusieurs paths (cwd + `/home/biocybe/...`
+    pour Docker).
+  - `metrics` : `prometheus_client` importable si `metrics_enabled`
+  - `auth` : token configuré (env OU APIConfig) ET ≥ 16 chars. Refuse
+    les tokens courts qui ne sont pas prod-grade.
+
+#### Demo live
+
+    $ curl http://localhost:8080/readyz
+    {
+      "checks": {
+        "auth": {"detail": "ok", "ok": true},
+        "metrics": {"detail": "ok", "ok": true},
+        "quarantine_dir": {"detail": "quarantine not yet created (will be on first use)", "ok": true},
+        "rules_yara_compilable": {"detail": "cache .yarc found at db/signatures/yara/compiled.yarc", "ok": true}
+      },
+      "status": "ready",
+      "uptime_seconds": 3.2
+    }
+
+Exemple K8s `readinessProbe` :
+
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8080
+      initialDelaySeconds: 2
+      periodSeconds: 5
+      failureThreshold: 3
+
+#### Tests (`tests/test_readyz.py`, 10 tests)
+
+  - `/readyz` accessible sans auth (différent de `/api/v1/*`)
+  - 200 quand tous les checks passent
+  - 503 quand au moins un check fail
+  - Chaque check individuel testé OK + fail :
+    - YARA OK avec règles, fail sans aucune règle ni cache
+    - Auth OK avec token long, fail sans token, fail si token < 16 chars
+    - Auth disabled (dev) → check passe avec mention
+  - Le body 503 contient TOUJOURS les 4 checks (diagnostic complet)
+  - Uptime fonctionne et est numérique
+
 ### Phase 3.b : pré-compilation du cache YARA au build Docker
 
 Suite logique de Phase 3.a : exposer le build du cache `.yarc` comme

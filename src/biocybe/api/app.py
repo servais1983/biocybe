@@ -265,18 +265,98 @@ def _register_routes(app: Flask) -> None:
         return jsonify({"status": "ok", "service": "biocybe", "api_version": API_VERSION}), 200
 
     @app.route("/readyz", methods=["GET"])
-    @require_auth
     def readyz():
-        """Readiness probe — l'app peut servir des requêtes destructives."""
+        """Readiness probe Kubernetes-style — peut-on accepter du trafic ?
+
+        **Pas d'auth requise** : K8s scrape avec un sidecar sans token.
+        Sécurité : `/readyz` ne révèle aucune info sensible, juste l'état
+        de checks fonctionnels (booléens + détails techniques).
+
+        Retourne **HTTP 200** si tous les checks critiques passent,
+        **HTTP 503** sinon. Le corps détaille chaque check pour debugging
+        et observabilité.
+
+        Checks effectués :
+          - quarantine_dir : existe et writable
+          - rules_yara_compilable : YARA peut compiler quelque chose
+            (cache .yarc présent OU au moins 1 règle source)
+          - metrics : prometheus_client OK si metrics_enabled
+          - auth : token configuré si require_auth
+        """
         cfg: APIConfig = current_app.config["BIOCYBE_API_CONFIG"]
-        qdir = Path(cfg.quarantine_dir)
-        return jsonify(
-            {
-                "status": "ready",
-                "quarantine_dir_exists": qdir.is_dir(),
-                "uptime_seconds": time.time() - cfg.started_at,
-            }
-        ), 200
+
+        def _check_quarantine() -> tuple[bool, str]:
+            qdir = Path(cfg.quarantine_dir)
+            if not qdir.is_dir():
+                # Pas un échec : la quarantaine est créée à la 1re mise
+                # en quarantaine. On vérifie juste que le parent existe.
+                parent = qdir.parent if qdir.parent.exists() else Path.cwd()
+                if not os.access(str(parent), os.W_OK):
+                    return False, f"parent {parent} not writable"
+                return True, f"{qdir} not yet created (will be on first use)"
+            if not os.access(str(qdir), os.W_OK):
+                return False, f"{qdir} not writable"
+            return True, "ok"
+
+        def _check_yara() -> tuple[bool, str]:
+            # On accepte 3 états :
+            # 1) cache compiled.yarc existe → load rapide au scan
+            # 2) rules/yara/ ou db/signatures/yara/ contient au moins 1 .yar
+            # 3) sinon : pas prêt
+            cache_paths = [
+                Path("db/signatures/yara/compiled.yarc"),
+                Path("/home/biocybe/db/signatures/yara/compiled.yarc"),
+            ]
+            for cp in cache_paths:
+                if cp.exists():
+                    return True, f"cache .yarc found at {cp}"
+            sources = []
+            for d in (
+                Path("rules/yara"),
+                Path("/home/biocybe/rules/yara"),
+                Path("db/signatures/yara"),
+                Path("/home/biocybe/db/signatures/yara"),
+            ):
+                if d.is_dir():
+                    sources.extend(d.rglob("*.yar"))
+                    sources.extend(d.rglob("*.yara"))
+            if sources:
+                return True, f"{len(sources)} source rule(s) found (will compile on first scan)"
+            return False, "no YARA rules and no cache — scan will fail"
+
+        def _check_metrics() -> tuple[bool, str]:
+            if not cfg.metrics_enabled:
+                return True, "disabled by config"
+            m: _Metrics = current_app.config["BIOCYBE_METRICS"]
+            if not m.enabled:
+                return False, "prometheus_client missing (pip install biocybe[web])"
+            return True, "ok"
+
+        def _check_auth_config() -> tuple[bool, str]:
+            if not cfg.require_auth:
+                return True, "disabled (dev mode)"
+            token = cfg.token or os.environ.get(API_TOKEN_ENV)
+            if not token:
+                return False, f"no token configured (env {API_TOKEN_ENV} or APIConfig.token)"
+            if len(token) < 16:
+                return False, f"token too short ({len(token)} chars, recommend >= 32)"
+            return True, "ok"
+
+        checks = {
+            "quarantine_dir": _check_quarantine(),
+            "rules_yara_compilable": _check_yara(),
+            "metrics": _check_metrics(),
+            "auth": _check_auth_config(),
+        }
+
+        all_ok = all(ok for ok, _ in checks.values())
+        status_code = 200 if all_ok else 503
+        body = {
+            "status": "ready" if all_ok else "not_ready",
+            "uptime_seconds": round(time.time() - cfg.started_at, 2),
+            "checks": {name: {"ok": ok, "detail": detail} for name, (ok, detail) in checks.items()},
+        }
+        return jsonify(body), status_code
 
     @app.route("/api/v1/info", methods=["GET"])
     @require_auth
