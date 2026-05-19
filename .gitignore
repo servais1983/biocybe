@@ -41,8 +41,12 @@ templates/
 demo_samples/
 
 # Workdirs et rapports générés par scripts/validate_*.py
-validation_v*_workdir/
-validation_v*_*.json
+# Match TOUT validation_*_workdir/ (pas seulement les v1/v2/... numérotés
+# — l'oubli de cette wildcard a causé un commit accidentel de 749
+# fichiers signature-base CC-BY-NC en Phase 3.a, supprimé dans le
+# commit suivant).
+validation_*_workdir/
+validation_*_*.json
 validation_v3_target.txt
 biocybe.log
 test_audit_demo.jsonl
