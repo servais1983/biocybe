@@ -67,6 +67,12 @@ biocybe intel update --source urlhaus                 # URLs malveillantes 24h (
 biocybe intel update --source threatfox --threatfox-days 7  # IOCs structurés (C2, payload, botnet, max 7j)
 # → db/signatures/{hashes,urlhaus,threatfox}/ alimentés pour le scanner & cellules réseau
 
+# --- Fraîcheur des feeds (Phase 3.g) ---
+biocybe intel age                          # tableau age/staleness, exit 1 si un feed stale
+biocybe intel age --json --stale-after 86400   # parsing machine, seuil 24h
+# Refresh auto : voir deploy/refresh/ (systemd timer, k8s CronJob, crontab)
+# Prometheus : biocybe_intel_feed_age_seconds{source=...} exposé sur /metrics
+
 # --- Sentinelle réseau IOC-aware (Phase 3.e) ---
 biocybe intel stats                        # combien d'IOCs chargés depuis les feeds locaux ?
 biocybe intel lookup evil.example.com      # lookup auto-typé (hash/host/url/ip détecté)
@@ -196,6 +202,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.d** Threat intel multi-source (URLhaus + ThreatFox) | ✅ | Feeds abuse.ch supplémentaires : URLhaus (URLs malveillantes 24h, CSV public sans auth, hostname index) + ThreatFox (IOCs structurés C2/payload/botnet, JSON Auth-Key, index `by_type/{hash,url,domain,ip}.json` pour lookup O(1)). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. 16 tests (8 par feed, mocks API complets) |
 | **3.e** Sentinelle réseau IOC-aware | ✅ | `IOCLookup` charge les feeds en mémoire (lookup O(1) hash/host/url/ip avec fallback parent domain). `NetworkSentinel` extrait URLs/IPs/hosts/hashes du contenu fichier (regex ASCII anti-binaire, denylist 30+ TLDs courants anti-FP, dédup, cap 50MB). Intégré au scanner via `--network-scan`. CLI `biocybe intel lookup <value>` et `intel stats`. 23 tests |
 | **3.f** Surveillance live + sinkhole DNS | ✅ | `NetworkMonitor` polling `psutil.net_connections('inet')` (cross-platform, pas de pcap/eBPF), match remote IP/host contre `IOCLookup`, callback `on_match`, rate-limit anti-storm (N alertes/clé/heure), filtre loopback/link-local/multicast, reverse DNS optionnel. `HostsBlocker` : sinkhole DNS via section marquée du fichier hosts (écriture atomique, backup auto, validation stricte hostnames, cap 50k entrées). CLI `biocybe netmon {scan,watch}` + `netmon block {apply,clear,status}`. 21 tests |
+| **3.g** Refresh auto + monitoring fraîcheur | ✅ | `feed_age` lit les `last_update.txt` → âge/staleness/IOC count par source. CLI `biocybe intel age` (exit 0/1/2). Gauges Prometheus `biocybe_intel_feed_age_seconds` / `_iocs_total` / `_stale` peuplées au scrape `/metrics`. Check `/readyz` `intel_feeds_fresh` (non bloquant). Templates de déploiement systemd (.service+.timer), k8s CronJob, crontab avec règles Alertmanager. 11 tests |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 

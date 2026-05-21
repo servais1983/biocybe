@@ -63,6 +63,10 @@ class APIConfig:
     cors_origins: list[str] | None = None
     # Quarantine dir pour les endpoints quarantine
     quarantine_dir: str = "quarantine"
+    # Racine des feeds threat intel (Phase 3.g — métriques feed age)
+    signatures_db_path: str = "db/signatures"
+    # Seuil staleness des feeds (secondes) pour /readyz + gauge stale
+    feed_stale_threshold_s: int = 48 * 3600
     # Workers WSGI (waitress/gunicorn)
     workers: int = 4
     # Activer l'endpoint /metrics (Prometheus)
@@ -124,6 +128,26 @@ class _Metrics:
             self.quarantine_size = Gauge(
                 "biocybe_quarantine_size",
                 "Nombre d'entrées actuellement en quarantaine",
+                registry=self.registry,
+            )
+            # Phase 3.g : surveillance fraicheur des feeds threat intel
+            self.intel_feed_age = Gauge(
+                "biocybe_intel_feed_age_seconds",
+                "Age (secondes) du dernier refresh d'un feed threat intel. "
+                "Alerter si > 86400 (24h).",
+                ["source"],
+                registry=self.registry,
+            )
+            self.intel_feed_iocs = Gauge(
+                "biocybe_intel_feed_iocs_total",
+                "Nombre d'IOCs presents dans un feed local (estimation).",
+                ["source"],
+                registry=self.registry,
+            )
+            self.intel_feed_stale = Gauge(
+                "biocybe_intel_feed_stale",
+                "1 si le feed est stale (au-dela du seuil), 0 sinon. -1 si jamais recupere.",
+                ["source"],
                 registry=self.registry,
             )
             self.enabled = True
@@ -188,6 +212,35 @@ def _metrics_track_request(method: str, endpoint: str, status: int) -> None:
     m: _Metrics = current_app.config["BIOCYBE_METRICS"]
     if m.enabled:
         m.api_requests.labels(method=method, endpoint=endpoint, status=str(status)).inc()
+
+
+def _refresh_feed_age_gauges(m: _Metrics, cfg: APIConfig) -> None:
+    """Met à jour les gauges feed age depuis le disque (Phase 3.g).
+
+    Appelé au scrape `/metrics`. Robuste : toute erreur de lecture est
+    avalée (les gauges gardent leur dernière valeur), on ne casse jamais
+    l'endpoint de métriques pour un feed manquant.
+    """
+    if not m.enabled:
+        return
+    try:
+        from ..intel.feed_age import read_feed_ages
+
+        report = read_feed_ages(
+            cfg.signatures_db_path,
+            stale_threshold_s=cfg.feed_stale_threshold_s,
+        )
+        for feed in report.feeds:
+            label = feed.source
+            if feed.age_seconds is not None:
+                m.intel_feed_age.labels(source=label).set(feed.age_seconds)
+                m.intel_feed_stale.labels(source=label).set(1 if feed.stale else 0)
+            else:
+                # Jamais récupéré : age non défini, stale = -1 (sentinelle)
+                m.intel_feed_stale.labels(source=label).set(-1)
+            m.intel_feed_iocs.labels(source=label).set(feed.ioc_count)
+    except Exception as exc:  # pragma: no cover - défense
+        logger.debug("refresh feed age gauges: %s", exc)
 
 
 def _verdict_to_json(v) -> dict[str, Any]:
@@ -342,11 +395,36 @@ def _register_routes(app: Flask) -> None:
                 return False, f"token too short ({len(token)} chars, recommend >= 32)"
             return True, "ok"
 
+        def _check_intel_feeds() -> tuple[bool, str]:
+            # Non-bloquant pour la readiness : un feed stale ne doit pas
+            # sortir le pod du load balancer (le scan signature/YARA marche
+            # toujours). On le rapporte en `warn` séparé pour observabilité.
+            try:
+                from ..intel.feed_age import read_feed_ages
+
+                report = read_feed_ages(
+                    cfg.signatures_db_path,
+                    stale_threshold_s=cfg.feed_stale_threshold_s,
+                )
+            except Exception as exc:  # pragma: no cover
+                return True, f"feed age check skipped: {exc}"
+            if report.all_missing:
+                return True, "no intel feeds fetched yet (run: biocybe intel update)"
+            stale = [f.source for f in report.feeds if f.stale]
+            if stale:
+                return True, f"stale feeds: {', '.join(stale)} (refresh recommended)"
+            return True, "all feeds fresh"
+
         checks = {
             "quarantine_dir": _check_quarantine(),
             "rules_yara_compilable": _check_yara(),
             "metrics": _check_metrics(),
             "auth": _check_auth_config(),
+        }
+        # Check informatif (jamais bloquant) — exposé dans le body mais
+        # n'influe pas sur le status_code.
+        warnings = {
+            "intel_feeds_fresh": _check_intel_feeds(),
         }
 
         all_ok = all(ok for ok, _ in checks.values())
@@ -355,6 +433,9 @@ def _register_routes(app: Flask) -> None:
             "status": "ready" if all_ok else "not_ready",
             "uptime_seconds": round(time.time() - cfg.started_at, 2),
             "checks": {name: {"ok": ok, "detail": detail} for name, (ok, detail) in checks.items()},
+            "warnings": {
+                name: {"ok": ok, "detail": detail} for name, (ok, detail) in warnings.items()
+            },
         }
         return jsonify(body), status_code
 
@@ -529,6 +610,10 @@ def _register_routes(app: Flask) -> None:
         # /metrics ne doit PAS exiger le Bearer token (Prometheus scrape).
         # Cas d'usage : protéger via network policy / mTLS upstream.
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        # Phase 3.g : rafraîchit les gauges feed age au moment du scrape
+        # (peu coûteux : lit quelques last_update.txt + compte des clés JSON).
+        _refresh_feed_age_gauges(m, cfg)
 
         # Utilise le registry dédié à cette instance d'app (pas global)
         return generate_latest(m.registry), 200, {"Content-Type": CONTENT_TYPE_LATEST}

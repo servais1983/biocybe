@@ -1,0 +1,85 @@
+# BioCybe — refresh des feeds threat intel via Kubernetes CronJob.
+#
+# Met a jour db/signatures depuis abuse.ch toutes les 6h. Le volume
+# db/signatures doit etre PARTAGE (PVC ReadWriteMany ou equivalent)
+# avec les pods BioCybe qui scannent, sinon le refresh n'aura aucun
+# effet sur eux.
+#
+# Pre-requis :
+#   - Secret `biocybe-intel` avec la cle ABUSECH_AUTH_KEY
+#   - PVC `biocybe-signatures` monte en RWX sur les pods scanner + ce job
+#
+# Deploiement : kubectl apply -f biocybe-intel-refresh-cronjob.yaml
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: biocybe-intel-refresh
+  labels:
+    app.kubernetes.io/name: biocybe
+    app.kubernetes.io/component: intel-refresh
+spec:
+  # Toutes les 6 heures
+  schedule: "0 */6 * * *"
+  # Pas de chevauchement : si un refresh deborde, on saute le suivant
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: biocybe
+            app.kubernetes.io/component: intel-refresh
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: intel-refresh
+              image: ghcr.io/servais1983/biocybe:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  biocybe intel update --source all
+                  biocybe intel rules build-cache --skip-sync
+                  echo "--- feed age apres refresh ---"
+                  biocybe intel age
+              env:
+                - name: ABUSECH_AUTH_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: biocybe-intel
+                      key: abusech-auth-key
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: signatures
+                  mountPath: /home/biocybe/db/signatures
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: signatures
+              persistentVolumeClaim:
+                claimName: biocybe-signatures
+            - name: tmp
+              emptyDir: {}

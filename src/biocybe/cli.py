@@ -938,6 +938,48 @@ def cmd_intel_lookup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_intel_age(args: argparse.Namespace) -> int:
+    """Affiche l'age des feeds threat intel (Phase 3.g).
+
+    Exit codes :
+      - 0 : tous les feeds sont presents ET frais
+      - 1 : au moins un feed est stale OU manquant
+      - 2 : aucun feed n'a jamais ete recupere (deploiement neuf)
+    """
+    from .intel.feed_age import read_feed_ages
+
+    report = read_feed_ages(args.db_path, stale_threshold_s=args.stale_after)
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(f"BioCybe — age des feeds threat intel (db={args.db_path})")
+        print(f"  Seuil stale : {args.stale_after}s ({args.stale_after // 3600}h)")
+        print("-" * 78)
+        print(f"  {'source':<14} {'last_update':<22} {'age':<10} {'iocs':>8}  status")
+        print("-" * 78)
+        for f in report.feeds:
+            last = f.last_update.isoformat(timespec="seconds") if f.last_update else "—"
+            age = f.to_dict()["age_human"]
+            status = "STALE" if f.stale else "fresh"
+            if f.error:
+                status = f"ERROR ({f.error})"
+            print(
+                f"  {f.source:<14} {last:<22} {age:<10} {f.ioc_count:>8}  {status}"
+            )
+        print("-" * 78)
+        if report.all_missing:
+            print("Aucun feed recupere. Lance : biocybe intel update --source all")
+        elif report.any_stale:
+            print("Au moins un feed est stale. Relance : biocybe intel update --source all")
+        else:
+            print("Tous les feeds sont frais.")
+
+    if report.all_missing:
+        return 2
+    return 1 if report.any_stale else 0
+
+
 def cmd_intel_stats(args: argparse.Namespace) -> int:
     """Affiche les compteurs IOC chargés localement (Phase 3.e)."""
     from .intel.ioc_lookup import IOCLookup
@@ -1571,6 +1613,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     intel_stats_p.add_argument("--json", action="store_true")
 
+    # Phase 3.g : âge des feeds (cron monitoring, alerte si stale)
+    intel_age_p = intel_sub.add_parser(
+        "age",
+        help="Affiche l'age des feeds threat intel. Exit 1 si au moins un est stale.",
+    )
+    intel_age_p.add_argument(
+        "--db-path",
+        default="db/signatures",
+        help="Dossier signatures (defaut : db/signatures)",
+    )
+    intel_age_p.add_argument(
+        "--stale-after",
+        type=int,
+        default=48 * 3600,
+        help="Seuil en secondes au-dela duquel un feed est considere stale (defaut 48h)",
+    )
+    intel_age_p.add_argument("--json", action="store_true")
+
     # ---------------- tcell (Lymphocyte T — détection comportementale ML) -----
     tcell_p = subparsers.add_parser(
         "tcell",
@@ -1849,6 +1909,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_lookup(args)
         if args.intel_command == "stats":
             return cmd_intel_stats(args)
+        if args.intel_command == "age":
+            return cmd_intel_age(args)
     if args.command == "netmon":
         if args.netmon_command == "scan":
             return cmd_netmon_scan(args)

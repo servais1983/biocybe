@@ -1,0 +1,16 @@
+[Unit]
+Description=BioCybe — declenche le refresh des feeds threat intel toutes les 6h
+Documentation=https://github.com/servais1983/biocybe
+
+[Timer]
+# Toutes les 6 heures, alignees sur l'heure (00:00, 06:00, 12:00, 18:00).
+OnCalendar=*-*-* 00/6:00:00
+# Si la machine etait eteinte au moment prevu, rattrape au boot.
+Persistent=true
+# Jitter aleatoire jusqu'a 5 min pour ne pas marteler abuse.ch a heure
+# pile depuis des milliers de deploiements BioCybe simultanes.
+RandomizedDelaySec=300
+Unit=biocybe-intel-refresh.service
+
+[Install]
+WantedBy=timers.target

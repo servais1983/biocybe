@@ -27,6 +27,8 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/biocybe/intel/ioc_lookup.py` — IOCLookup en mémoire (Phase 3.e), agrège tous les feeds, lookup O(1)
 - `src/biocybe/network_sentinel.py` — NetworkSentinel (Phase 3.e), extrait + matche IOCs dans contenu fichiers
 - `src/biocybe/network_monitor.py` — NetworkMonitor + HostsBlocker (Phase 3.f), surveillance live + sinkhole DNS
+- `src/biocybe/intel/feed_age.py` — mesure âge/staleness des feeds (Phase 3.g), CLI `intel age` + gauges Prometheus
+- `deploy/refresh/` — templates refresh auto (systemd .service+.timer, k8s CronJob, crontab) + monitoring
 - `src/biocybe/intel/rules.py` — import opt-in règles YARA communautaires
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique
@@ -170,6 +172,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | **3.d — Threat intel multi-source** | ✅ | URLhaus (CSV public, URLs+hostnames) + ThreatFox (JSON Auth-Key, IOCs structurés). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. Index `by_type/{hash,url,domain,ip}.json` pour lookup O(1). 16 tests |
 | **3.e — Sentinelle réseau IOC-aware** | ✅ | `IOCLookup` (en mémoire, multi-feeds, parent-domain fallback, merge keep-best). `NetworkSentinel` (regex ASCII anti-binaire, denylist 30+ hosts, dédup, cap 50MB). Intégré scanner `--network-scan`. CLI `intel lookup <value>` + `intel stats`. 23 tests |
 | **3.f — Surveillance live + sinkhole DNS** | ✅ | `NetworkMonitor` (polling psutil.net_connections, cross-OS, rate-limit anti-storm, filtre IPs locales, callback on_match, reverse-DNS opt). `HostsBlocker` (sinkhole DNS, écriture atomique, backup, validation hostnames, cap 50k). CLI `netmon {scan,watch}` + `netmon block {apply,clear,status}`. 21 tests |
+| **3.g — Refresh auto + monitoring fraîcheur** | ✅ | `feed_age` (âge/staleness/IOC count par source). CLI `intel age` (exit 0/1/2). Gauges Prometheus `biocybe_intel_feed_age_seconds`/`_iocs_total`/`_stale`. Check `/readyz` non bloquant. Templates `deploy/refresh/` (systemd/k8s/cron + Alertmanager). 11 tests |
 | 2.3.c — Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |
 

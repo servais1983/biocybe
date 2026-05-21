@@ -1,0 +1,45 @@
+[Unit]
+Description=BioCybe — rafraichissement des feeds threat intel (abuse.ch)
+Documentation=https://github.com/servais1983/biocybe
+# On veut le reseau dispo (DNS + HTTPS vers abuse.ch)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adapter user/group a votre deploiement. Eviter root si possible :
+# un utilisateur dedie qui possede le dossier db/signatures suffit.
+User=biocybe
+Group=biocybe
+WorkingDirectory=/opt/biocybe
+
+# Auth-Key abuse.ch (MalwareBazaar + ThreatFox). URLhaus marche sans,
+# mais la cle augmente les limites de rate. Stocker hors du repo.
+# Recommande : EnvironmentFile pointant vers un fichier 0600.
+EnvironmentFile=-/etc/biocybe/intel.env
+
+# Met a jour les 3 feeds. --source all enchaine MalwareBazaar, URLhaus,
+# ThreatFox. Exit non-zero si au moins une source echoue => systemd
+# marquera l'unite "failed" et OnFailure pourra alerter.
+ExecStart=/opt/biocybe/.venv/bin/biocybe intel update --source all
+
+# Apres update, recompile le cache YARA si besoin (no-op si rien
+# n'a change grace au fingerprint). Garde un demarrage rapide.
+ExecStartPost=/opt/biocybe/.venv/bin/biocybe intel rules build-cache --skip-sync
+
+# Durcissement systemd (principe de moindre privilege)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Seul db/signatures doit etre writable
+ReadWritePaths=/opt/biocybe/db
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Timeout : abuse.ch peut etre lent, mais pas 10 min non plus
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

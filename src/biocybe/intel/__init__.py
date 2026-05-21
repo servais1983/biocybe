@@ -16,6 +16,13 @@ from .abusech import (
     MalwareBazaarClient,
     update_signatures_from_malwarebazaar,
 )
+from .feed_age import (
+    DEFAULT_STALE_THRESHOLD_S,
+    KNOWN_FEEDS,
+    FeedAge,
+    FeedAgeReport,
+    read_feed_ages,
+)
 from .ioc_lookup import (
     IOCHit,
     IOCLookup,
@@ -41,10 +48,14 @@ from .urlhaus import (
 )
 
 __all__ = [
+    "DEFAULT_STALE_THRESHOLD_S",
+    "KNOWN_FEEDS",
     "KNOWN_SOURCES",
     "AbuseChAPIError",
     "AbuseChAuthMissing",
     "DownloadResult",
+    "FeedAge",
+    "FeedAgeReport",
     "IOCHit",
     "IOCLookup",
     "MalwareBazaarClient",
@@ -56,6 +67,7 @@ __all__ = [
     "YaraRuleSource",
     "download_source",
     "list_sources",
+    "read_feed_ages",
     "update_signatures_from_malwarebazaar",
     "update_threatfox_iocs",
     "update_urlhaus_iocs",

@@ -1,0 +1,21 @@
+# BioCybe — refresh des feeds threat intel via cron classique.
+#
+# Installation :
+#   crontab -e        (en tant qu'utilisateur biocybe, pas root)
+# puis coller la(les) ligne(s) ci-dessous en adaptant les chemins.
+#
+# La cle abuse.ch doit etre exportee. Avec cron, le plus simple est de
+# la mettre directement dans la crontab (fichier en mode 0600) OU de
+# sourcer un fichier d'env dans le script.
+
+# Auth-Key abuse.ch (MalwareBazaar + ThreatFox ; URLhaus optionnel)
+ABUSECH_AUTH_KEY=remplacer_par_votre_cle
+
+# Toutes les 6 heures : refresh + rebuild cache + log de l'age des feeds.
+# La sortie est redirigee vers un log rotaté par logrotate.
+0 */6 * * * cd /opt/biocybe && .venv/bin/biocybe intel update --source all >> /var/log/biocybe/intel-refresh.log 2>&1 && .venv/bin/biocybe intel rules build-cache --skip-sync >> /var/log/biocybe/intel-refresh.log 2>&1
+
+# Verification quotidienne de fraicheur a 08:00 : si un feed est stale
+# (>48h), `intel age` sort en exit 1 => `||` declenche une alerte.
+# Adapter la commande d'alerte (mail, webhook, etc.).
+0 8 * * * cd /opt/biocybe && .venv/bin/biocybe intel age --stale-after 86400 || echo "BioCybe: feeds threat intel stale sur $(hostname)" | mail -s "BioCybe intel stale" soc@example.com

@@ -5,6 +5,73 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.g : refresh auto des feeds + monitoring de fraîcheur
+
+Le threat intel est périssable : un domaine flaggé il y a 6 mois a
+probablement été nettoyé. Sans refresh régulier **et alerte si le cron
+casse**, BioCybe devient une passoire silencieuse. Cette phase ajoute
+la mesure de fraîcheur (CLI + Prometheus + readyz) et les templates de
+déploiement pour l'automatisation.
+
+#### Nouveau module
+
+- **`biocybe.intel.feed_age`** :
+  - `read_feed_ages(db_path, stale_threshold_s, now=None)` lit les
+    `last_update.txt` de chaque feed (MalwareBazaar/URLhaus/ThreatFox)
+    et renvoie un `FeedAgeReport` avec, par source : `last_update`,
+    `age_seconds`, `age_human` (ex. `3d04h`), `ioc_count` (estimation
+    sans charger les index), `stale` (bool), `error`
+  - Fail-safe : feeds absents → `all_missing`, pas de crash sur
+    déploiement neuf. Timestamp invalide → `error` + traité comme stale
+  - `now` injectable pour des tests déterministes
+
+#### CLI
+
+  - `biocybe intel age [--json] [--stale-after SECONDS]` — tableau
+    lisible ou JSON. Exit codes : `0` tous frais · `1` ≥ 1 stale ·
+    `2` aucun feed jamais récupéré. Directement utilisable comme
+    healthcheck cron (`|| alerter`).
+
+#### Métriques Prometheus (`/metrics`)
+
+Trois nouvelles Gauges, rafraîchies au scrape (lecture disque légère) :
+
+    biocybe_intel_feed_age_seconds{source="malwarebazaar"}  3421
+    biocybe_intel_feed_iocs_total{source="threatfox"}       18742
+    biocybe_intel_feed_stale{source="urlhaus"}              0     # 1=stale, -1=jamais récupéré
+
+Permet une alerte Alertmanager `feed_age > 86400` (exemple fourni dans
+`deploy/refresh/README.md`).
+
+#### Readiness probe
+
+Check `intel_feeds_fresh` ajouté à `/readyz`, dans une section
+`warnings` **non bloquante** : un feed stale ne sort pas le pod du
+load balancer (le scan YARA/signature continue), mais l'info est
+exposée pour observabilité.
+
+#### Templates de déploiement (`deploy/refresh/`)
+
+  - `biocybe-intel-refresh.service` + `.timer` — **systemd**, refresh
+    toutes les 6h, durcissement (NoNewPrivileges, ProtectSystem=strict,
+    ReadWritePaths limité à db/), rebuild cache YARA en ExecStartPost,
+    jitter anti-thundering-herd
+  - `biocybe-intel-refresh-cronjob.yaml` — **Kubernetes** CronJob,
+    `concurrencyPolicy: Forbid`, securityContext durci (runAsNonRoot,
+    readOnlyRootFilesystem, drop ALL caps), PVC RWX partagé
+  - `crontab.example` — **cron** classique avec healthcheck quotidien
+  - `README.md` — guide d'install des 3 ordonnanceurs + règles
+    Alertmanager + monitoring CLI/readyz
+
+#### Tests (`tests/test_intel_feed_age.py`, 11 tests)
+
+  - `read_feed_ages` : tous présents, partiellement stale, tous
+    manquants, timestamp invalide, freshest/oldest
+  - CLI : exit 0 (fresh) / 1 (stale) / 2 (missing), sortie JSON
+  - Prometheus : gauges peuplées et exposées sur `/metrics`, valeurs
+    stale=1 et stale=-1 (jamais récupéré) correctes
+  - `/readyz` : warning intel_feeds_fresh présent et non bloquant
+
 ### Phase 3.f : surveillance live des connexions sortantes + sinkhole DNS
 
 Couche temps-réel qui complète la sentinelle statique de la Phase 3.e.
