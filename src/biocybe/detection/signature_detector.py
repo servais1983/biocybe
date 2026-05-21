@@ -14,9 +14,20 @@ import queue
 import threading
 from datetime import datetime, timedelta
 
-import magic
 import requests
 import yaml
+
+# python-magic (libmagic) est dans l'extra [fileanalysis], pas en core.
+# Import optionnel : ce module héritage n'est pas branché au pipeline
+# (la détection signature active passe par lymphocytes_b). On évite de
+# faire crasher `import biocybe.detection.signature_detector`.
+try:
+    import magic
+
+    _MAGIC_AVAILABLE = True
+except ImportError:
+    magic = None
+    _MAGIC_AVAILABLE = False
 import yara
 
 # Configuration du logger
@@ -394,8 +405,11 @@ class SignatureDetector:
             info["modified"] = datetime.fromtimestamp(stats.st_mtime).isoformat()
             info["accessed"] = datetime.fromtimestamp(stats.st_atime).isoformat()
 
-            # Type de fichier
-            info["mime"] = magic.Magic(mime=True).from_file(file_path)
+            # Type de fichier (si python-magic dispo, sinon "unknown")
+            if _MAGIC_AVAILABLE:
+                info["mime"] = magic.Magic(mime=True).from_file(file_path)
+            else:
+                info["mime"] = "unknown"
 
             # Calcul des hashes
             with open(file_path, "rb") as f:

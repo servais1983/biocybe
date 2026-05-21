@@ -5,6 +5,25 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### README professionnel + audit d'import des modules héritage restants
+
+- **README réécrit** en version professionnelle, sans emojis, structuré
+  (sommaire, aperçu, installation, utilisation par capacité, architecture,
+  déploiement, observabilité, état des fonctionnalités, sécurité, tests,
+  contribution). Reflète l'état réel mature du projet (v0.2.0). L'image
+  d'en-tête (CDN GitHub) est préservée à l'identique.
+- **`explainability/__init__.py` corrigé** : il importait `ThreatExplainer`
+  (inexistant) et un module `visualizer` (inexistant) → `import
+  biocybe.explainability` crashait même avec lime installé. Réécrit en lazy
+  loader PEP 562 : `ethical_framework` (stdlib) importé directement,
+  `explainer` (lime/shap/captum) chargé à la demande avec message clair.
+- **`detection/signature_detector.py`** : import `magic` (python-magic,
+  extra fileanalysis) guardé → `import biocybe.detection.signature_detector`
+  ne crashe plus en core ; `mime` vaut `unknown` si libmagic absent.
+- Test de non-régression étendu aux 4 modules héritage
+  (`swarm_intelligence`, `learning.reinforcement_learning`,
+  `explainability`, `detection.signature_detector`).
+
 ### Nettoyage de dette technique
 
 Assainissement du repo — trois landmines historiques neutralisées,

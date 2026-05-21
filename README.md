@@ -3,433 +3,380 @@
 
 # BioCybe
 
-## 🔬 Système de cybersécurité bio-inspiré, modulaire et explicable
+Systeme de cyberdefense open-source bio-inspire, modulaire et explicable.
 
-BioCybe est un système de cybersécurité open-source inspiré du système immunitaire biologique, offrant une alternative transparente, modulaire et éthique aux solutions commerciales fermées.
+BioCybe s'inspire du systeme immunitaire pour fournir une defense en
+profondeur : detecter, apprendre, neutraliser et **regenerer** apres une
+attaque. Concu comme une alternative transparente et auditable aux EDR
+commerciaux fermes, pour les SOC d'entreprise, MSSP et equipes securite.
+
+Version 0.2.0 · Licence MIT · Python 3.10 a 3.13 · Linux / Windows / macOS
 
 ---
 
-## 🚀 Quickstart
+## Sommaire
 
-> **Statut** : alpha utilisable. Scan one-shot YARA + quarantaine fonctionnels, daemon avec macrophages + lymphocytes B. Cibles déployables : SOC, MSSP, équipes sécurité qui veulent une alternative open-source aux EDR commerciaux.
-> Cellules T (ML anomalies), NK, mémoire immunitaire, API REST, dashboard : voir [Roadmap](#-roadmap).
+- [Apercu](#apercu)
+- [Installation](#installation)
+- [Utilisation](#utilisation)
+- [Architecture bio-inspiree](#architecture-bio-inspiree)
+- [Deploiement](#deploiement)
+- [Observabilite](#observabilite)
+- [Etat des fonctionnalites](#etat-des-fonctionnalites)
+- [Securite et conformite](#securite-et-conformite)
+- [Tests et qualite](#tests-et-qualite)
+- [Contribution](#contribution)
+- [Licence](#licence)
 
-### Installation (3 options)
+---
 
-**Option A — via pip (recommandé)**
+## Apercu
+
+BioCybe reproduit le cycle complet de la reponse immunitaire, de bout en
+bout, dans un daemon unifie :
+
+```
+DETECTER  ->  APPRENDRE  ->  NEUTRALISER  ->  REGENERER
+(signatures   (memoire,      (quarantaine,    (restauration
+ YARA, ML,     reduction      cellules NK)      anti-ransomware)
+ reseau)       des FP)
+        + alerte (Slack/syslog/webhook) + audit immuable + metriques Prometheus
+```
+
+Principes directeurs :
+
+- **Transparence** : code ouvert, regles lisibles, decisions tracables.
+- **Reversibilite** : quarantaine, suspension de processus et restauration
+  sont reversibles ; les actions destructives sont opt-in et en dry-run
+  par defaut.
+- **Production-ready** : pas de mode demonstration ; chaque capacite est
+  testee en conditions reelles et deployable (systemd, Docker, Kubernetes).
+
+---
+
+## Installation
+
+### Via pip (recommande)
+
 ```bash
 git clone https://github.com/servais1983/biocybe.git
 cd biocybe
 pip install -e ".[soc]"     # profil SOC complet (ML + web + fileanalysis + network)
-# ou : pip install -e .     # core seulement (scan + daemon, < 30 s)
-# ou : pip install -e ".[all]"   # tout, y compris dev tools
+# ou : pip install -e .          # coeur seulement (scan + daemon)
+# ou : pip install -e ".[all]"   # tout, y compris outils de dev
 biocybe --help
 ```
 
-**Option B — via Docker**
+Profils d'extras disponibles : `ml`, `web`, `fileanalysis`, `network`,
+`soc`, `all`. L'API REST et le dashboard requierent l'extra `web`.
+
+### Via Docker
+
 ```bash
 docker build -t biocybe:latest .
 docker run --rm -v "$PWD/samples:/samples:ro" biocybe:latest scan /samples
-# ou avec compose pour le daemon :
+# daemon via compose :
 docker compose up -d
 ```
 
-> **Déploiement production** (systemd, Compose durci, Kubernetes, observabilité,
-> séquence de mise en service) : voir le [guide de déploiement](docs/deployment.md).
+Pour le deploiement de production (systemd, Compose durci, Kubernetes,
+observabilite, sequence de mise en service), voir le
+[guide de deploiement](docs/deployment.md).
 
-**Option C — sans installer (dev local)**
+### Sans installation globale (dev local)
+
 ```bash
-pip install -e .            # nécessaire au moins une fois
+pip install -e .
 python -m biocybe scan ./un_dossier
 python -m pytest tests/ -v
 ```
 
-### Usage
+---
+
+## Utilisation
+
+### Scan a la demande et quarantaine
 
 ```bash
-# --- Scan one-shot ---
-biocybe scan ./un_dossier                  # scan récursif, rapport texte
-biocybe scan ./un_dossier --quarantine     # + déplacer les détections en quarantaine
-biocybe scan ./un_dossier --quarantine --dry-run   # éval prod : détecte sans agir
-biocybe scan ./un_dossier --json           # sortie machine-readable pour SIEM
-biocybe scan ./un_dossier --no-recursive
+biocybe scan ./un_dossier                      # scan recursif, rapport texte
+biocybe scan ./un_dossier --quarantine         # deplace les detections en quarantaine
+biocybe scan ./un_dossier --quarantine --dry-run   # evaluation : detecte sans agir
+biocybe scan ./un_dossier --json               # sortie machine-readable (SIEM)
 
-# --- Gestion de la quarantaine ---
-biocybe quarantine list                    # affiche le manifeste
-biocybe quarantine list --json
-biocybe quarantine restore <id>            # restauration avec vérification SHA-256
-biocybe quarantine restore <id> --to /chemin/alternatif
-biocybe quarantine restore <id> --keep-manifest    # garde l'audit trail
-
-# --- Threat intel : abuse.ch (3 feeds gratuits) ---
-export ABUSECH_AUTH_KEY="..."              # cf. https://auth.abuse.ch (URLhaus auth optionnelle)
-biocybe intel update                       # = --source all : MalwareBazaar + URLhaus + ThreatFox
-biocybe intel update --source malwarebazaar           # hashes de malwares (100 derniers)
-biocybe intel update --source malwarebazaar --selector time  # derniers 60 min
-biocybe intel update --source urlhaus                 # URLs malveillantes 24h (CSV public)
-biocybe intel update --source threatfox --threatfox-days 7  # IOCs structurés (C2, payload, botnet, max 7j)
-# → db/signatures/{hashes,urlhaus,threatfox}/ alimentés pour le scanner & cellules réseau
-
-# --- Fraîcheur des feeds (Phase 3.g) ---
-biocybe intel age                          # tableau age/staleness, exit 1 si un feed stale
-biocybe intel age --json --stale-after 86400   # parsing machine, seuil 24h
-# Refresh auto : voir deploy/refresh/ (systemd timer, k8s CronJob, crontab)
-# Prometheus : biocybe_intel_feed_age_seconds{source=...} exposé sur /metrics
-
-# --- Sentinelle réseau IOC-aware (Phase 3.e) ---
-biocybe intel stats                        # combien d'IOCs chargés depuis les feeds locaux ?
-biocybe intel lookup evil.example.com      # lookup auto-typé (hash/host/url/ip détecté)
-biocybe intel lookup 1.2.3.4:443 --json    # lookup IP avec port
-biocybe intel lookup $(sha256sum file.exe | awk '{print $1}')   # hash d'un fichier
-
-# Scan + détection IOCs réseau dans le contenu des fichiers
-biocybe scan ./dossier --network-scan                  # signale URLs/IPs/hashes connus malveillants
-biocybe scan ./dossier --network-scan --quarantine     # + quarantine si IOC trouvé
-biocybe scan ./email.eml --network-scan --json         # parse les liens d'un mail suspicieux
-
-# --- Surveillance live des connexions sortantes (Phase 3.f) ---
-biocybe netmon scan                        # snapshot one-shot : connexions actives vs IOCs
-biocybe netmon scan --all --json           # toutes les connexions (mode debug)
-biocybe netmon scan --reverse-dns          # + résolution PTR pour enrichir
-biocybe netmon watch --interval 5          # surveillance continue, Ctrl+C pour stopper
-# → root/admin pour voir TOUS les processus ; sinon seulement les vôtres
-
-# --- Sinkhole DNS via fichier hosts (Phase 3.f, opt-in) ---
-sudo biocybe netmon block status           # voir si une section BioCybe est active
-sudo biocybe netmon block apply --yes --min-confidence 75   # sinkhole tous les hostnames conf≥75
-sudo biocybe netmon block clear --yes                       # retire la section, restaure le hosts
-# → écriture atomique, backup automatique (.biocybe.bak), section délimitée, réversible
-
-# --- Règles YARA communautaires (opt-in) ---
-biocybe intel rules list                   # voir les sources disponibles
-biocybe intel rules update --source signature-base --yes --verify
-# → +733 règles Florian Roth/Neo23x0 actives (APT, ransomware, webshells)
-biocybe intel rules update --yes           # toutes les sources
-biocybe intel rules verify signature-base  # quelles règles compilent ?
-
-# --- Lymphocyte T : détection comportementale (anomalies sans signature) ---
-pip install -e ".[ml]"                     # une fois : numpy + sklearn + joblib
-biocybe tcell train --duration 1800        # 30 min d'apprentissage en prod normale
-biocybe tcell status                       # info sur le modèle persisté
-biocybe tcell evaluate                     # score l'état système actuel
-# → exit 1 + explication "cpu_percent z=+4.5σ" si anomalie détectée
-
-# --- Quarantaine chiffrée AES-256-GCM (Phase 2.4.b) ---
-# Génère une clé une fois et stocke-la dans ton secret manager
-export BIOCYBE_QUARANTINE_KEY="$(biocybe crypto generate-key)"
-# Active dans config/biocybe.yaml :
-#   quarantine:
-#     encrypt: true
-# Désormais tout fichier en quarantaine est chiffré au repos.
-# Format .quarantine.enc : magic "BCE1" + nonce + tag GCM + ciphertext.
-# Le déchiffrement à la restauration vérifie le tag (anti-tampering).
-# Sans la clé, les fichiers en quarantaine sont irrécupérables —
-# y compris pour root sur la machine !
-
-# --- Audit log immuable (compliance SOC2 / ISO 27001) ---
-# Active dans config/biocybe.yaml :
-#   audit:
-#     enabled: true
-#     path: logs/audit.jsonl
-biocybe audit show --limit 50           # 50 dernières entrées
-biocybe audit show --action quarantine_created --json
-biocybe audit verify                    # vérifie la chaîne SHA-256
-# → "AUDIT LOG ALTÉRÉ : seq=2 self_hash invalide" si tampering détecté
-
-# --- Notifications sortantes (Slack / syslog / webhook) ---
-# Configure dans config/biocybe.yaml :
-#   notify:
-#     slack:
-#       webhook_url: https://hooks.slack.com/services/...
-#       min_severity: warning
-#     syslog:
-#       host: siem.local
-#       port: 514
-#       protocol: udp
-#       min_severity: info
-biocybe notify list                        # liste les notifiers configurés
-biocybe notify test --severity warning     # envoie un event de test
-# Au runtime : tout `quarantine_file()`, alerte temps-réel watcher,
-# alerte comportementale TCell est automatiquement notifiée.
-
-# --- API REST pour intégration SIEM/SOAR ---
-pip install -e ".[web]"                                # une fois : Flask + waitress + Prometheus client
-export BIOCYBE_API_TOKEN="$(openssl rand -hex 32)"     # token Bearer obligatoire en prod
-biocybe api serve --host 0.0.0.0 --port 8080           # waitress (Windows) ou gunicorn (Linux)
-
-# Depuis un client (curl, SIEM, SOAR...) :
-curl http://server:8080/healthz                                       # liveness, pas d'auth
-curl -H "Authorization: Bearer $TOKEN" http://server:8080/api/v1/info
-curl -H "Authorization: Bearer $TOKEN" -X POST \
-     -H "Content-Type: application/json" \
-     -d '{"path": "/uploads", "quarantine": true, "dry_run": false}' \
-     http://server:8080/api/v1/scan
-curl -H "Authorization: Bearer $TOKEN" http://server:8080/api/v1/quarantine
-curl -H "Authorization: Bearer $TOKEN" -X POST \
-     http://server:8080/api/v1/quarantine/<id>/restore
-curl http://server:8080/metrics                                       # Prometheus exposition
-
-# --- Dashboard SOC (Phase 2.3.c) ---
-pip install -e ".[web]"                                # Dash + Bootstrap + Plotly
-biocybe dashboard serve                                # http://127.0.0.1:8050 (lecture seule)
-biocybe dashboard serve --host 0.0.0.0 --port 8050 --refresh-seconds 30
-# → cartes KPI + onglets Quarantaine / Audit (vérif chaîne SHA-256 live) / Threat Intel
-# → triage uniquement ; la remédiation (restore/purge) reste en CLI/API avec audit trail
-# → derrière un reverse-proxy authentifié ou réseau d'admin isolé (pas d'auth applicative)
-
-# --- Daemon avec real-time monitoring ---
-biocybe --watch /var/log --watch /tmp                      # alert-only
-biocybe --watch /var/log --watch-quarantine                # auto-quarantine
-
-# --- Daemon + surveillance réseau live (Phase 3.h) ---
-biocybe --netmon                                           # connexions sortantes vs IOCs
-biocybe --watch /tmp --watch-quarantine --netmon           # full stack live
-biocybe --watch /tmp --netmon --metrics-port 9091          # + endpoint Prometheus du daemon
-# → curl http://localhost:9091/metrics : biocybe_watcher_*, biocybe_nk_actions_total,
-#   biocybe_netmon_iocs_loaded, biocybe_memory_* (observabilité runtime complète)
-# → chaque connexion vers un IOC connu : alerte NotifierManager + audit log immuable
-# → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
-# → activable aussi via config : netmon.enabled: true
-
-# --- Immunité collective (swarm) : partage entre nœuds BioCybe ---
-export BIOCYBE_SWARM_KEY="secret-partage-du-swarm"         # signe/vérifie les bundles
-biocybe swarm status                                       # combien d'indicateurs partageables ?
-biocybe swarm export shared/$(hostname).json               # exporte mes menaces confirmées
-biocybe swarm import shared/                               # importe celles des pairs
-# → herd immunity : quand un nœud découvre une menace, les autres l'apprennent.
-#   Jamais de faux positif partagé, signature HMAC, l'analyste local prime.
-
-# --- Auto-régénération : restauration anti-ransomware (self-healing) ---
-biocybe regen baseline /etc/nginx /var/www/html           # capture l'état sain
-biocybe regen drift                                        # qu'est-ce qui a changé ? (exit 1 si drift)
-biocybe regen heal                                         # dry-run : montre ce qui serait restauré
-biocybe regen heal --execute                               # RESTAURE les fichiers endommagés
-biocybe regen status                                       # état de la baseline
-# → cas ransomware : baseline avant l'attaque, puis `heal --execute` restaure
-#   les fichiers chiffrés depuis le coffre intègre (vérif SHA-256, atomique)
-
-# Auto-régénération LIVE dans le daemon (config regeneration.enabled + auto_heal) :
-biocybe --watch /var/www                                   # détecte rafale ransomware
-# → 5 fichiers protégés modifiés en 10s = ransomware suspecté → alerte critique,
-#   et si auto_heal=true : restauration AUTOMATIQUE sans intervention humaine
-
-# --- Mémoire immunitaire : apprentissage cross-session ---
-biocybe memory stats                                       # compteurs + top familles
-biocybe memory recall <hash|ip|hostname>                   # ce qu'on sait de cet indicateur
-biocybe memory recent --most-seen                          # menaces les plus récurrentes
-biocybe memory mark <hash> --type sha256 --as benign       # marque un FAUX POSITIF
-# → plus jamais d'alerte sur cet indicateur (réduction du bruit SOC)
-biocybe memory mark <hash> --type sha256 --as malicious    # confirme une menace (réponse max)
-biocybe memory forget <hash> --type sha256                 # purge une entrée
-# → réponse secondaire : un indicateur déjà vu obtient un verdict instantané,
-#   la confiance se renforce à chaque récurrence, les FP confirmés sont supprimés
-
-# --- Cellules NK : réponse active sur processus malveillants ---
-biocybe nk status                                          # config NK effective + test protection
-biocybe nk status --pid 1                                  # le PID 1 est-il protégé ? (oui)
-biocybe nk respond --pid 12345                             # DRY-RUN par défaut : décrit sans agir
-biocybe nk respond --pid 12345 --execute                  # suspend (réversible) le process
-biocybe nk resume --pid 12345                              # réveille un process suspendu
-biocybe nk respond --pid 12345 --action kill --allow-kill --execute   # SIGKILL (opt-in explicite)
-# → garde-fous : désactivée+dry-run par défaut, liste de process protégés
-#   (init/systemd/lsass/svchost/BioCybe lui-même...), seuil de confiance,
-#   anti-PID-recycling, rate-limit, audit systématique
-# → réponse auto sur détection netmon : config nk.enabled + nk.auto_respond
-biocybe --watch /var/log --watch-quarantine --watch-dry-run  # simulation
+biocybe quarantine list                        # affiche le manifeste
+biocybe quarantine restore <id>                # restauration avec verification SHA-256
 ```
 
-Exit code 1 si menace détectée — intégrable dans un pipeline CI/CD.
-Les fichiers en quarantaine sont indexés dans `quarantine/manifest.json` (chemin
-original, hash SHA-256, règle déclenchante, horodatage, cellule détectrice).
-La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tampering).
+Exit code 1 si une menace est detectee (integrable en pipeline CI/CD). Les
+fichiers en quarantaine sont indexes dans `quarantine/manifest.json` (chemin
+original, SHA-256, regle declenchante, horodatage, cellule detectrice).
 
-## 🗺 Roadmap
+### Threat intelligence (abuse.ch)
 
-| Phase | Statut | Livrable |
-|---|---|---|
-| **0** Déverrouillage | ✅ | Le système démarre sans erreur ; 8 smoke tests verts |
-| **1** MVP démontrable | ✅ | CLI `scan` + détection YARA + quarantaine + tests EICAR end-to-end |
-| **2.1** Distribution sans friction | ✅ | `pip install`, Docker, CI multi-OS/Python, pre-commit |
-| **2.2.a** Real-time monitoring | ✅ | `--watch` + watchdog + débouncing + anti-boucle |
-| **2.2.b** Threat intel (MalwareBazaar) | ✅ | Hashes malwares depuis abuse.ch, signatures.json idempotent |
-| **2.2.c** Règles YARA communautaires | ✅ | Import opt-in Neo23x0/signature-base (~3000), YARA-Rules/rules (~5000) avec anti zip-slip + anti zip-bomb |
-| **2.2.d** Lymphocyte T (ML anomalies) | ✅ | IsolationForest sur 13 métriques psutil, persistence joblib, explication z-scores top-features, intégration bus pour scan signature ciblé |
-| **2.2.e** `--dry-run` + restore | ✅ | Réversibilité totale, exigence SOC pour éval prod |
-| **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
-| **2.3.a** API REST + Prometheus | ✅ | Flask + waitress/gunicorn, Bearer token auth, `/healthz` `/api/v1/{scan,quarantine,info}` `/metrics`, 20 tests d'intégration |
-| **2.3.b** Webhooks Slack/syslog/HTTP | ✅ | NotifierManager avec failover, retry exp backoff, rate limit anti-storm, hook automatique sur quarantaine/détection RT/anomalie TCell, RFC 5424 syslog, 19 tests |
-| **2.3.c** Dashboard Dash | ✅ | UI triage SOC (Dash + Bootstrap dark), lecture seule : cartes KPI + onglets Quarantaine/Audit/Threat Intel, charts répartition + fraicheur feeds, vérif intégrité chaîne audit en live, auto-refresh, servi via waitress. Couche données découplée et testable. `biocybe dashboard serve`. 11 tests |
-| **2.4.a** Audit log immuable | ✅ | JSONL append-only + chaîne SHA-256 tamper-evident, `audit show/verify`, intégré quarantine/restore, 12 tests (tampering, swap, suppression détectés) |
-| **2.4.b** Quarantaine chiffrée AES-256-GCM | ✅ | Format BCE1 (magic+nonce+tag+ciphertext), AAD=SHA-256 du clair (double sécurité), clé via env `BIOCYBE_QUARANTINE_KEY` ou KMS, `biocybe crypto generate-key`, 17 tests (tampering ciphertext/header/aad/clé tous détectés) |
-| **2.4.c** Supply chain hardening | ✅ | SBOM SPDX + CycloneDX via syft, scan vulnérabilités via grype, pip-audit strict, SECURITY.md, tous les artefacts archivés 30j par run CI |
-| **3.a** Cache compilation YARA | ✅ | Cache `compiled.yarc` avec fingerprint SHA-256 des sources. Mesure réelle Windows + Defender + 748 règles : cold 311s → warm 0.19s (**speedup x1626**) |
-| **3.b** Pré-compile cache au build | ✅ | CLI `biocybe intel rules build-cache` + intégration `Dockerfile` (build stage). Image Docker démarre en ~200 ms même au 1er run |
-| **3.c** K8s readiness probe réel | ✅ | `/readyz` (no auth, K8s-compatible) fait 4 checks réels : `quarantine_dir` writable, `rules_yara_compilable` (cache ou sources), `metrics` (prometheus OK), `auth` (token configuré + ≥16 chars). Retourne 200 ou 503 avec diagnostic détaillé |
-| **3.d** Threat intel multi-source (URLhaus + ThreatFox) | ✅ | Feeds abuse.ch supplémentaires : URLhaus (URLs malveillantes 24h, CSV public sans auth, hostname index) + ThreatFox (IOCs structurés C2/payload/botnet, JSON Auth-Key, index `by_type/{hash,url,domain,ip}.json` pour lookup O(1)). CLI `intel update --source {malwarebazaar,urlhaus,threatfox,all}`. 16 tests (8 par feed, mocks API complets) |
-| **3.e** Sentinelle réseau IOC-aware | ✅ | `IOCLookup` charge les feeds en mémoire (lookup O(1) hash/host/url/ip avec fallback parent domain). `NetworkSentinel` extrait URLs/IPs/hosts/hashes du contenu fichier (regex ASCII anti-binaire, denylist 30+ TLDs courants anti-FP, dédup, cap 50MB). Intégré au scanner via `--network-scan`. CLI `biocybe intel lookup <value>` et `intel stats`. 23 tests |
-| **3.f** Surveillance live + sinkhole DNS | ✅ | `NetworkMonitor` polling `psutil.net_connections('inet')` (cross-platform, pas de pcap/eBPF), match remote IP/host contre `IOCLookup`, callback `on_match`, rate-limit anti-storm (N alertes/clé/heure), filtre loopback/link-local/multicast, reverse DNS optionnel. `HostsBlocker` : sinkhole DNS via section marquée du fichier hosts (écriture atomique, backup auto, validation stricte hostnames, cap 50k entrées). CLI `biocybe netmon {scan,watch}` + `netmon block {apply,clear,status}`. 21 tests |
-| **3.g** Refresh auto + monitoring fraîcheur | ✅ | `feed_age` lit les `last_update.txt` → âge/staleness/IOC count par source. CLI `biocybe intel age` (exit 0/1/2). Gauges Prometheus `biocybe_intel_feed_age_seconds` / `_iocs_total` / `_stale` peuplées au scrape `/metrics`. Check `/readyz` `intel_feeds_fresh` (non bloquant). Templates de déploiement systemd (.service+.timer), k8s CronJob, crontab avec règles Alertmanager. 11 tests |
-| **3.h** Daemon unifié (netmon live) | ✅ | `NetworkMonitorService` intégré au daemon : surveillance des connexions sortantes en continu, `on_match` → audit immuable + notification, rechargement à chaud des IOCs après cron `intel update`. Flags `--netmon`/`--netmon-interval`, config `netmon.*`. 9 tests |
-| **2.3.c** Dashboard SOC (Dash) | ✅ | UI triage lecture seule (Dash + Bootstrap dark) : cartes KPI + onglets Quarantaine/Audit/Threat Intel, vérif chaîne audit SHA-256 en live, charts Plotly, auto-refresh, servi waitress. Couche données découplée et testable. `biocybe dashboard serve`. 11 tests |
-| **Cellules NK** Réponse active | ✅ | `NKCell` : suspend (réversible) / terminate / kill de processus malveillants. Garde-fous : désactivée+dry-run par défaut, liste de process protégés (init/systemd/lsass/svchost/BioCybe...), seuil de confiance, anti-PID-recycling, rate-limit, audit systématique. Isolation réseau via sinkhole DNS. CLI `nk {respond,resume,status}` + réponse auto sur détection netmon (opt-in). 22 tests |
-| **Mémoire immunitaire** Apprentissage cross-session | ✅ | `ImmuneMemory` (SQLite) : recall instantané d'un indicateur connu (réponse secondaire), suppression des faux positifs confirmés par analyste, renforcement de confiance sur menaces récurrentes, historique forensique. Intégré au scanner (suppression FP + apprentissage). CLI `memory {stats,recall,recent,mark,forget}`. 16 tests + smoke test persistance réel |
-| **Validation E2E** Pipeline intel | ✅ | `scripts/validate_intel_pipeline.py` : 35 vérifications réelles (vraie connexion socket observée par psutil), IOCs RFC 5737/2606, 0 mock de logique métier |
+```bash
+export ABUSECH_AUTH_KEY="..."                  # cf. https://auth.abuse.ch
+biocybe intel update                           # MalwareBazaar + URLhaus + ThreatFox
+biocybe intel update --source threatfox --threatfox-days 7
+biocybe intel age                              # fraicheur des feeds (exit 1 si perimes)
+biocybe intel stats                            # IOCs charges localement
+biocybe intel lookup evil.example.com          # recherche auto-typee (hash/host/url/ip)
 
-Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
+# Regles YARA communautaires (opt-in)
+biocybe intel rules update --source signature-base --yes --verify
+```
+
+### Detection comportementale (lymphocytes T)
+
+```bash
+pip install -e ".[ml]"
+biocybe tcell train --duration 1800           # apprentissage en fonctionnement normal
+biocybe tcell evaluate                         # score l'etat systeme courant
+# Sortie : exit 1 + explication "cpu_percent z=+4.5sigma" si anomalie
+```
+
+### Surveillance reseau et IOCs
+
+```bash
+# IOCs dans le contenu des fichiers
+biocybe scan ./dossier --network-scan
+
+# Connexions sortantes vs feeds IOC
+biocybe netmon scan                            # snapshot ponctuel
+biocybe netmon watch --interval 5              # surveillance continue
+
+# Sinkhole DNS (opt-in, reversible, root requis)
+sudo biocybe netmon block apply --yes --min-confidence 75
+sudo biocybe netmon block clear --yes
+```
+
+### Reponse active (cellules NK)
+
+```bash
+biocybe nk status --pid 1                      # le PID est-il protege ?
+biocybe nk respond --pid 12345                 # dry-run par defaut : decrit sans agir
+biocybe nk respond --pid 12345 --execute       # suspend (reversible)
+biocybe nk resume --pid 12345                  # reveille un processus suspendu
+biocybe nk respond --pid 12345 --action kill --allow-kill --execute
+```
+
+Garde-fous : desactivee et dry-run par defaut, liste de processus proteges
+(init, systemd, lsass, svchost, BioCybe lui-meme), seuil de confiance,
+anti-recyclage de PID, rate-limit, audit systematique.
+
+### Memoire immunitaire (apprentissage cross-session)
+
+```bash
+biocybe memory stats
+biocybe memory recall <hash|ip|hostname>
+biocybe memory mark <hash> --type sha256 --as benign      # marque un faux positif
+biocybe memory mark <hash> --type sha256 --as malicious   # confirme une menace
+```
+
+Reponse secondaire : un indicateur deja rencontre obtient un verdict
+instantane, la confiance se renforce a chaque recurrence, les faux positifs
+confirmes ne re-alertent plus (reduction du bruit SOC).
+
+### Auto-regeneration (self-healing, anti-ransomware)
+
+```bash
+biocybe regen baseline /etc/nginx /var/www/html   # capture l'etat sain
+biocybe regen drift                                # ecarts vs baseline (exit 1 si drift)
+biocybe regen heal                                 # dry-run : montre ce qui serait restaure
+biocybe regen heal --execute                       # restaure depuis le coffre integre
+```
+
+Cas ransomware : avec `regeneration.auto_heal` active, le daemon detecte une
+modification de masse de fichiers proteges (signature ransomware) et restaure
+automatiquement les fichiers chiffres, avec verification d'integrite et
+ecriture atomique.
+
+### Immunite collective (swarm)
+
+```bash
+export BIOCYBE_SWARM_KEY="secret-partage-du-swarm"   # signe/verifie les bundles
+biocybe swarm export shared/$(hostname).json         # exporte les menaces confirmees
+biocybe swarm import shared/                          # importe celles des pairs
+```
+
+Lorsqu'un noeud decouvre une menace, les autres l'apprennent sans l'avoir
+rencontree (herd immunity). Bundles signes HMAC, transport-agnostique. Les
+faux positifs ne sont jamais partages ; l'analyste local garde la priorite.
+
+### API REST, dashboard et daemon
+
+```bash
+# API REST (integration SIEM/SOAR)
+pip install -e ".[web]"
+export BIOCYBE_API_TOKEN="$(openssl rand -hex 32)"
+biocybe api serve --host 0.0.0.0 --port 8080
+#   /healthz (liveness), /readyz (readiness), /api/v1/{scan,quarantine,info}, /metrics
+
+# Dashboard SOC (lecture seule)
+biocybe dashboard serve                              # http://127.0.0.1:8050
+
+# Daemon complet : fichiers + reseau + regeneration + metriques
+biocybe --watch /var/www --watch-quarantine --netmon --metrics-port 9091
+```
+
+### Quarantaine chiffree et audit immuable
+
+```bash
+export BIOCYBE_QUARANTINE_KEY="$(biocybe crypto generate-key)"   # AES-256-GCM
+biocybe audit show --limit 50
+biocybe audit verify                                 # verifie la chaine SHA-256
+```
 
 ---
 
-## 🧬 Architecture bio-inspirée
+## Architecture bio-inspiree
 
-BioCybe s'inspire du système immunitaire pour créer une défense en profondeur, adaptative et résiliente. Notre architecture modulaire est composée de "cellules" spécialisées qui travaillent ensemble pour détecter, identifier et neutraliser les menaces.
+L'architecture est composee de cellules specialisees qui collaborent via un
+bus de messages interne. Chaque cellule est un module Python independant.
 
-### 1. Macrophages (Détection passive)
-- Surveillance continue de l'environnement
-- Détection des anomalies et comportements suspects
-- Analyse passive des fichiers, processus et trafic réseau
-- Première ligne de défense non-intrusive
+| Cellule | Role immunitaire | Implementation |
+|---|---|---|
+| Macrophages | Surveillance passive | Monitoring systeme (psutil) |
+| Lymphocytes B | Identification par signature | YARA + empreintes SHA-256 |
+| Lymphocytes T | Analyse comportementale | IsolationForest (scikit-learn), explication par z-scores |
+| Cellules NK | Neutralisation | Suspension / arret de processus, isolation reseau |
+| Memoire immunitaire | Apprentissage adaptatif | Store SQLite, reponse secondaire, suppression des faux positifs |
+| Auto-regeneration | Regeneration tissulaire | Baseline d'integrite + restauration anti-ransomware |
+| Immunite collective | Defense collaborative | Partage de renseignement signe entre noeuds (herd immunity) |
 
-### 2. Lymphocytes B (Identification de signature)
-- Base de données de signatures de malwares
-- Détection basée sur YARA et empreintes cryptographiques
-- Mise à jour communautaire des définitions de menaces
+Capacites transverses : threat intelligence multi-source (abuse.ch), sentinelle
+et moniteur reseau, API REST, dashboard SOC, notifications sortantes, journal
+d'audit immuable, quarantaine chiffree.
 
-### 3. Lymphocytes T (Analyse comportementale)
-- Détection d'anomalies par apprentissage machine
-- Surveillance du comportement des processus
-- Identification des actions suspectes sans signature connue
+---
 
-### 4. Cellules NK (Neutralisation)
-- Isolation immédiate des processus suspects
-- Quarantaine des fichiers potentiellement malveillants
-- Actions automatisées ou semi-automatisées selon configuration
+## Deploiement
 
-### 5. Mémoire Immunitaire (Historique adaptatif) ✅
-- Apprentissage continu cross-session (SQLite persistant)
-- **Réponse secondaire** : un pathogène déjà rencontré → verdict instantané, confiance renforcée
-- Suppression des faux positifs confirmés par analyste (réduction du bruit SOC)
-- Base de connaissances forensique : first/last_seen, times_seen, famille par indicateur
+Trois cibles supportees, toutes durcies (voir [docs/deployment.md](docs/deployment.md)) :
 
-### 6. Auto-régénération / Self-healing (Régénération tissulaire) ✅
-- **Capacité phare** : après élimination du pathogène, le tissu se régénère
-- Baseline d'intégrité des fichiers critiques (hash SHA-256 + coffre dédupliqué)
-- Détection de drift (modifié / supprimé) puis **restauration depuis la baseline**
-- **Anti-ransomware** : restaure les fichiers chiffrés depuis le coffre intègre
-- Garde-fous : dry-run par défaut, vérification d'intégrité avant écriture, atomicité, audit
+- **systemd** (VM, bare-metal) : unite de service durcie + timer de refresh
+  des feeds. Modeles dans `deploy/refresh/`.
+- **Docker Compose** : configuration durcie (read-only, cap_drop ALL,
+  no-new-privileges, limites CPU/memoire). Voir `docker-compose.yml`.
+- **Kubernetes** : Deployment + Service + PVC + NetworkPolicy avec
+  securityContext complet (runAsNonRoot, readOnlyRootFilesystem, seccomp,
+  probes /healthz et /readyz). Voir `deploy/k8s/`.
 
-### 7. Immunité collective / Swarm (Défense collaborative) ✅
-- Partage de renseignement entre nœuds BioCybe (herd immunity)
-- Quand un nœud découvre une menace, les autres l'apprennent sans l'avoir vue
-- Bundles signés HMAC, transport-agnostique (volume / HTTP / rsync)
-- Garde-fous : jamais de faux positif partagé, l'analyste local garde la priorité
+Le refresh automatique des feeds threat intel (toutes les 6h) est fourni pour
+les trois ordonnanceurs dans `deploy/refresh/`.
 
-### 8. Autres modules inspirés de la nature
-- **Algorithmes de colonies de fourmis** pour la détection collaborative
-- **Systèmes épigénétiques** pour l'adaptation aux environnements spécifiques
-- **Simulateurs coévolutifs** pour l'entraînement défensif
+---
 
-## 🔧 Technologies utilisées
+## Observabilite
+
+Deux endpoints Prometheus complementaires :
+
+- **API** (`/metrics` sur le port 8080) : scans, quarantaine, latence,
+  fraicheur des feeds, memoire immunitaire.
+- **Daemon** (`/metrics` sur le port configure via `--metrics-port`) :
+  watcher temps-reel, cellules NK, moniteur reseau, regeneration, memoire,
+  uptime.
+
+Metriques cles : `biocybe_intel_feed_age_seconds`,
+`biocybe_memory_disposition_total{disposition="confirmed_benign"}` (faux
+positifs supprimes), `biocybe_watcher_regen_healed` (fichiers restaures).
+Des regles Alertmanager d'exemple sont fournies dans `deploy/refresh/`.
+
+Le dashboard SOC (`biocybe dashboard serve`) offre une vue de triage en
+lecture seule : indicateurs cles, quarantaine, audit (verification de la
+chaine SHA-256 en direct), threat intel et memoire.
+
+---
+
+## Etat des fonctionnalites
+
+Toutes les capacites listees sont implementees, testees et integrees au
+runtime. Voir [CHANGELOG.md](CHANGELOG.md) pour le detail par version.
+
+| Domaine | Statut | Description |
+|---|---|---|
+| Distribution | Livre | pip, Docker multi-stage non-root, CI multi-OS x Python, pre-commit |
+| Scan + quarantaine | Livre | CLI, YARA, hashes, dry-run, restauration verifiee SHA-256 |
+| Real-time monitoring | Livre | Watcher cross-OS (watchdog), debouncing, anti-boucle |
+| Threat intel | Livre | MalwareBazaar + URLhaus + ThreatFox, refresh auto, monitoring de fraicheur |
+| Regles YARA communautaires | Livre | Import opt-in signature-base / YARA-Rules, anti zip-slip et zip-bomb |
+| Lymphocytes T (ML) | Livre | IsolationForest sur 13 metriques, persistance, explication z-scores |
+| Sentinelle reseau IOC | Livre | Extraction et lookup O(1) d'IOCs dans le contenu des fichiers |
+| Moniteur reseau live | Livre | Connexions sortantes vs IOCs, sinkhole DNS reversible |
+| Cellules NK | Livre | Suspend / terminate / kill avec garde-fous, audit |
+| Memoire immunitaire | Livre | SQLite, reponse secondaire, suppression des faux positifs |
+| Auto-regeneration | Livre | Baseline d'integrite + restauration anti-ransomware, auto-heal |
+| Immunite collective | Livre | Partage de renseignement signe entre noeuds |
+| API REST + Prometheus | Livre | Flask/waitress, Bearer token, /healthz /readyz /metrics |
+| Dashboard SOC | Livre | UI de triage Dash, lecture seule |
+| Notifications | Livre | Slack / syslog RFC 5424 / webhook, failover, rate-limit |
+| Audit immuable | Livre | JSONL append-only + chaine SHA-256 tamper-evident |
+| Quarantaine chiffree | Livre | AES-256-GCM (format BCE1), cle via env ou KMS |
+| Supply chain | Livre | SBOM SPDX + CycloneDX (syft), scan grype, pip-audit |
+| Cache YARA | Livre | Compilation mise en cache (demarrage ~200 ms) |
+| Cache compilation | Livre | Pre-compilation au build Docker |
+| Readiness K8s | Livre | /readyz avec 4 verifications reelles |
+| Validation E2E | Livre | scripts/validate_*.py, pipeline intel valide en CI |
+
+Modules historiques non integres au pipeline (conserves pour reference,
+dependances optionnelles chargees a la demande) : `detection`,
+`explainability`, `learning` (reinforcement learning / TensorFlow),
+`swarm_intelligence` (colonies de fourmis). Le partage de renseignement de
+production passe par le module `swarm`.
+
+---
+
+## Securite et conformite
+
+- **Actions destructives opt-in et graduees** : `--dry-run`,
+  `auto_heal: false`, `allow_kill: false` par defaut.
+- **Quarantaine chiffree** AES-256-GCM ; sans la cle, les fichiers en
+  quarantaine sont irrecuperables, y compris pour root.
+- **Audit immuable** : journal append-only a chaine SHA-256, detection de
+  toute modification, suppression ou permutation d'entree.
+- **Supply chain** : SBOM (SPDX + CycloneDX) et scan de vulnerabilites
+  generes a chaque build CI ; voir [SECURITY.md](SECURITY.md).
+- **Conformite** : approche non-invasive, journal d'audit exploitable pour
+  SOC 2 / ISO 27001, cadre ethique documente.
+- **Secrets** : tokens et cles via variables d'environnement / secret
+  manager, jamais en clair dans le code ou la configuration.
+
+---
+
+## Tests et qualite
+
+```bash
+python -m pytest tests/ -v          # suite complete
+ruff check src tests                # lint
+ruff format --check src tests       # format
 ```
-- Python           - TensorFlow/PyTorch
-- Docker           - Kubernetes (orchestration)
-- YARA Rules       - Elastic Stack
-- Cuckoo Sandbox   - Suricata/Zeek
-- Distributed DB   - XAI frameworks
-- Web APIs         - P2P Communication
-```
 
-## 🧠 IA explicable et éthique
+- Suite de tests unitaires et d'integration etendue (Linux / Windows / macOS
+  x Python 3.10 a 3.13).
+- Validation end-to-end en conditions reelles : `scripts/validate_*.py`
+  (scan, daemon, charge API, watcher en rafale, pipeline threat intel avec
+  vraie connexion socket). Le pipeline intel tourne aussi en integration
+  continue.
+- Lint et format Ruff, audit de dependances pip-audit, SBOM et scan de
+  vulnerabilites dans la CI.
 
-BioCybe se distingue par :
+---
 
-### 📊 Visualisation claire des décisions
-- Interface intuitive de visualisation des alertes et détections
-- Cartographie en temps réel des menaces et des réponses du système
-- Tableaux de bord personnalisables avec niveaux de détail adaptatifs
-- Représentation graphique des chemins d'attaque et vecteurs de menace
+## Contribution
 
-### 🔍 Modèles explicables (XAI)
-- Utilisation systématique de frameworks d'IA explicable
-- Documentation précise des paramètres et poids des modèles
-- Mécanismes d'attention visualisables pour comprendre les focus d'analyse
-- Explications en langage naturel des décisions algorithmiques
-- Traçabilité complète du processus décisionnel
+Les contributions sont bienvenues :
 
-### 📝 Règles de sécurité lisibles par les humains
-- Ensemble de règles claires et documentées
-- Possibilité de créer et modifier manuellement les règles
-- Traduction automatique des détections complexes en explications simples
-- Documentation contextuelle intégrée à l'interface
+1. Forker le projet.
+2. Creer une branche (`git checkout -b feature/ma-cellule`).
+3. Commiter les changements.
+4. Pousser la branche et ouvrir une Pull Request.
 
-### 🛡️ Cadre éthique open-source
-- Conformité RGPD intégrée dès la conception
-- Approche non-invasive respectant les données sensibles
-- Paramètres granulaires de confidentialité
-- Audits communautaires réguliers du code source
-- Charte éthique pour l'IA en cybersécurité
-- Mécanismes de consentement explicite pour la collecte de données
+Voir le [Guide de Contribution](CONTRIBUTING.md) et le
+[Code de Conduite](CODE_OF_CONDUCT.md). L'architecture est detaillee dans
+[docs/architecture.md](docs/architecture.md) ; le cadre ethique dans
+[ETHICS.md](ETHICS.md).
 
-## 📊 Différenciation avec les solutions commerciales
+---
 
-Contrairement aux solutions commerciales comme Darktrace, BioCybe offre :
-- **Transparence complète** : Code source ouvert et documentation détaillée
-- **IA explicable** : Visualisation des décisions et processus de détection
-- **Décentralisation** : Fonctionne sur edge et appareils à ressources limitées
-- **Adaptabilité communautaire** : Extensible par des modules tiers
-- **Éthique by design** : Respect de la vie privée et conformité RGPD intégrée
-- **Accessibilité universelle** : Protège aussi bien les particuliers que les organisations
+## Licence
 
-## 🔬 Laboratoire Vivant & Recherche
-
-BioCybe est aussi une plateforme de recherche avec :
-- **Publications scientifiques** : Papers et documentation de recherche
-- **Modules expérimentaux** : Testables par la communauté via Docker/API
-- **Notebooks Jupyter** : Pour expérimentation et pédagogie
-- **Challenges de sécurité** : Pour renforcer et tester le système
-- **API ouverte** : Permettant à d'autres chercheurs de créer leurs propres "cellules"
-
-## 💡 Cas d'usage
-
-- **Protection personnelle** : Ordinateurs, maisons connectées, smartphones
-- **Organisations à budget limité** : ONG, journalistes, petites entreprises
-- **Infrastructure critique légère** : Systèmes médicaux, services municipaux
-- **Éducation** : Formation en cybersécurité par analogie biologique
-- **R&D en IA** : Plateforme d'expérimentation pour chercheurs
-
-## 📚 Documentation & Communauté
-
-Le dossier "docs" contient :
-- Documentation technique complète
-- Guides d'implémentation par module
-- Explications des analogies biologiques
-- Tutoriels et cas d'étude
-- Publications et papiers de recherche
-
-## 👥 Contributions
-
-BioCybe encourage les contributions de la communauté :
-1. Forker le projet
-2. Créer une branche (`git checkout -b feature/nouvelleCellule`)
-3. Commiter vos changements (`git commit -m 'Ajout d'un nouveau type de cellule'`)
-4. Pusher sur la branche (`git push origin feature/nouvelleCellule`)
-5. Ouvrir une Pull Request
-
-Consultez notre [Guide de Contribution](CONTRIBUTING.md) et notre [Code de Conduite](CODE_OF_CONDUCT.md) pour plus d'informations.
-
-Rejoignez notre communauté sur GitHub Discussions et Discord pour partager vos idées !
-
-## 🧩 Architecture modulaire et extensible
-
-BioCybe est conçu pour être facilement extensible. Notre architecture modulaire permet à chacun de créer ses propres "cellules" de défense et de les intégrer au système. Consultez notre [Documentation d'Architecture](docs/architecture.md) pour comprendre comment étendre le système.
-
-## 🔒 Principes éthiques
-
-Nous croyons fermement que la cybersécurité doit respecter des principes éthiques stricts. Notre [Cadre Éthique](ETHICS.md) détaille notre engagement envers la transparence, le respect de la vie privée, la non-discrimination et le consentement éclairé.
-
-## 📄 Licence
-
-Ce projet est sous licence [MIT](LICENSE).
-
-## 📞 Contact
-
-Pour toute question ou suggestion, n'hésitez pas à me contacter.
+Projet distribue sous licence [MIT](LICENSE).

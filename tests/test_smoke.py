@@ -30,9 +30,14 @@ def test_heritage_modules_import_without_heavy_deps():
     """
     import importlib
 
-    # Ne doivent PAS lever ImportError au simple import
-    importlib.import_module("biocybe.swarm_intelligence")
-    importlib.import_module("biocybe.learning.reinforcement_learning")
+    # Ne doivent PAS lever ImportError au simple import (deps lazy/guardées)
+    for mod in (
+        "biocybe.swarm_intelligence",
+        "biocybe.learning.reinforcement_learning",
+        "biocybe.explainability",
+        "biocybe.detection.signature_detector",
+    ):
+        importlib.import_module(mod)
 
 
 def test_import_core():
