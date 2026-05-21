@@ -1976,14 +1976,20 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, _handle_signal)
 
-    _core = _init_core(config)
-    if not _core:
-        return 1
+    # ====================================================================
+    # PHASE 1 — PROTECTION IMMÉDIATE (avant l'init lente du noyau)
+    # ====================================================================
+    # Le watcher temps-réel, l'audit, les notifications, la mémoire et la
+    # régénération sont INDÉPENDANTS des cellules d'analyse (macrophages,
+    # lymphocytes B/T). On les démarre EN PREMIER : la protection fichiers
+    # est active en ~1-2 s, sans attendre l'init des lymphocytes T (~15 s)
+    # ni la baseline macrophage (~16 s). Élimine la fenêtre aveugle au
+    # démarrage (un fichier déposé pendant le boot serait sinon manqué).
 
-    # Phase 2.4.a : audit log immuable (opt-in via config.audit.enabled)
+    # Audit immuable (la quarantaine en dépend) — opt-in config.audit.enabled
     _setup_audit_log_from_config(config)
 
-    # Phase 2.3.b : wire-up des notifiers depuis config.notify
+    # Notifiers sortants (le hook du watcher en dépend) — config.notify
     notify_mgr, notifier_count = _build_notifier_manager_from_config(config)
     if notifier_count:
         logger.info(
@@ -1992,19 +1998,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             ", ".join(n.name for n in notify_mgr.notifiers),
         )
 
-    logger.info("Démarrage du système BioCybe...")
-    _core.start()
-
-    # ---- Real-time watcher (Phase 2.2.a) ----
-    # Le watcher tourne en plus du noyau et alimente les détections
-    # temps-réel via la même BCell que celle utilisée par `scan`.
-    watcher = None
-    watch_dirs: list[str] = list(getattr(args, "watch", []) or [])
-    if not watch_dirs:
-        # Fallback : lire depuis config si pas d'arg CLI
-        watch_dirs = config.get("core", {}).get("watch_directories", []) or []
-
-    # ---- Mémoire immunitaire (opt-in via config.memory.enabled) ----
+    # Mémoire immunitaire (suppression FP + apprentissage) — config.memory
     immune_memory = _build_immune_memory_from_config(config)
     if immune_memory is not None:
         logger.info(
@@ -2012,7 +2006,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             immune_memory.stats()["total"],
         )
 
-    # ---- Auto-régénération (opt-in via config.regeneration.enabled) ----
+    # Auto-régénération (anti-ransomware) — config.regeneration
     regen_cfg = _build_self_healer_from_config(config)
     if regen_cfg is not None:
         mode = "AUTO-HEAL" if regen_cfg["auto_heal"] else "ALERTE-SEULEMENT"
@@ -2022,12 +2016,19 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             mode,
         )
 
+    # Watcher temps-réel — démarré AVANT le noyau pour une protection immédiate
+    watcher = None
+    watch_dirs: list[str] = list(getattr(args, "watch", []) or [])
+    if not watch_dirs:
+        watch_dirs = config.get("core", {}).get("watch_directories", []) or []
+
+    rt_mode = "ALERT-ONLY"
     if watch_dirs:
         from .lymphocytes_b import BCell
         from .scanner import sync_yara_rules
         from .watcher import FileSystemWatcher
 
-        sync_yara_rules()  # assure que les règles sont à jour avant le watcher
+        sync_yara_rules()  # règles à jour avant le watcher
         rt_cell = BCell("realtime_watcher")
         watcher = FileSystemWatcher(
             watch_dirs,
@@ -2041,11 +2042,25 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             regen_burst_window=regen_cfg["burst_window"] if regen_cfg else 10.0,
         )
         watcher.start()
+        rt_mode = (
+            "DRY-RUN" if args.watch_dry_run
+            else "QUARANTINE" if args.watch_quarantine
+            else "ALERT-ONLY"
+        )
+        # Signal "ready" explicite : la protection est opérationnelle MAINTENANT,
+        # pas dans 30 s. Le watcher capte tout fichier créé à partir d'ici.
+        logger.info(
+            "PROTECTION ACTIVE : watcher temps-réel sur %d dossier(s), mode %s",
+            len(watch_dirs),
+            rt_mode,
+        )
+        print(
+            f"[READY] Protection fichiers active — {len(watch_dirs)} dossier(s) "
+            f"surveillé(s), mode {rt_mode}",
+            flush=True,
+        )
 
-    # ---- Network monitor live (Phase 3.h) ----
-    # Surveille les connexions sortantes contre les feeds IOC, alerte via
-    # NotifierManager + audit log. Recharge les IOCs si un cron intel
-    # update a tourné (sans redémarrer le daemon).
+    # Network monitor live (Phase 3.h) — dépend de notify_mgr (déjà construit)
     netmon_service = _build_network_monitor_service_from_config(
         config, notify_mgr, cli_args=args
     )
@@ -2055,6 +2070,18 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             "Network monitor actif : %d IOCs chargés, surveillance des connexions sortantes",
             netmon_service.ioc_total,
         )
+
+    # ====================================================================
+    # PHASE 2 — INIT DU NOYAU (lent : lymphocytes T ~15 s, baseline ~16 s)
+    # ====================================================================
+    # La protection fichiers/réseau est DÉJÀ active. On charge maintenant
+    # les cellules d'analyse comportementale ; leur init lente n'impacte
+    # plus la disponibilité de la protection.
+    _core = _init_core(config)
+    if not _core:
+        return 1
+    logger.info("Démarrage du système BioCybe (cellules d'analyse)...")
+    _core.start()
 
     # ---- Endpoint /metrics du daemon (observabilité runtime) ----
     metrics_server = _build_daemon_metrics_server(

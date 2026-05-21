@@ -5,6 +5,37 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Correctif production : fenêtre aveugle au démarrage du daemon (~30s → ~1-2s)
+
+Défaut découvert en test réel (dépôt d'un EICAR à chaud pendant le boot) :
+le daemon mettait ~30 s à protéger les fichiers. L'init des lymphocytes T
+(~15 s : import sklearn + collecte baseline) et la baseline macrophage
+(~16 s) s'exécutaient **avant** le démarrage du watcher. Conséquence : tout
+fichier déposé pendant le boot (ou juste après un redémarrage / rollout k8s)
+n'était **pas capté** — watchdog ne voit que les fichiers créés après son
+démarrage.
+
+#### Correction
+
+`cmd_daemon` réordonné en deux phases :
+
+1. **Phase 1 — protection immédiate** : audit, notifications, mémoire
+   immunitaire, auto-régénération, **watcher temps-réel** et network
+   monitor démarrent EN PREMIER. La protection fichiers est active en
+   ~1-2 s (chargement du cache YARA uniquement), indépendamment de l'init
+   des cellules d'analyse.
+2. **Phase 2 — init du noyau** : les cellules lentes (macrophages,
+   lymphocytes B/T) sont chargées ensuite ; leur latence n'impacte plus
+   la disponibilité de la protection.
+
+Ajout d'un **signal « ready » explicite** : log `PROTECTION ACTIVE` +
+ligne `[READY] Protection fichiers active — N dossier(s) surveillé(s)`
+imprimée dès que le watcher est opérationnel (équivalent du `/readyz` de
+l'API, pour le daemon).
+
+Vérifié en réel : EICAR déposé à T+5 s (ancienne fenêtre aveugle) →
+détecté et mis en quarantaine immédiatement.
+
 ### README professionnel + audit d'import des modules héritage restants
 
 - **README réécrit** en version professionnelle, sans emojis, structuré
