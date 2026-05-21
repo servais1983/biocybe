@@ -13,13 +13,37 @@ from collections import deque
 
 import numpy as np
 import yaml
-from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras.models import Model, load_model
-from tensorflow.keras.optimizers import Adam
+
+# TensorFlow est une dépendance LOURDE et incompatible Python 3.13. Ce
+# module (apprentissage par renforcement / Danger Theory) est un héritage
+# NON intégré au pipeline — la détection comportementale active utilise
+# `lymphocytes_t` (IsolationForest, sklearn). On garde donc l'import TF
+# optionnel : `import biocybe.learning.reinforcement_learning` ne crashe
+# pas sans TF ; un message clair est levé seulement si on utilise l'agent.
+try:
+    from tensorflow.keras.layers import Dense, Input
+    from tensorflow.keras.models import Model, load_model
+    from tensorflow.keras.optimizers import Adam
+
+    _TF_AVAILABLE = True
+except ImportError:
+    _TF_AVAILABLE = False
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+def _require_tf() -> None:
+    """Lève un message clair si TensorFlow n'est pas disponible."""
+    if not _TF_AVAILABLE:
+        raise ImportError(
+            "biocybe.learning.reinforcement_learning (héritage Danger Theory) "
+            "nécessite TensorFlow, incompatible Python 3.13 : "
+            "à utiliser sous Python <= 3.12 avec `pip install tensorflow`. "
+            "NB : la détection comportementale active de BioCybe passe par "
+            "`biocybe tcell` (lymphocytes T / IsolationForest), pas par ce module."
+        )
 
 
 class DangerSignals:
@@ -159,6 +183,7 @@ class BioCybeRLAgent:
 
     def __init__(self, state_size, action_size, config_path="config/learning.yaml"):
         """Initialise l'agent RL"""
+        _require_tf()  # message clair si TensorFlow absent (héritage non-intégré)
         self.state_size = state_size
         self.action_size = action_size
 

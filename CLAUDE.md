@@ -239,9 +239,9 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
   fini de démarrer (compilation YARA en cours). Fix : ne pas signaler
   "Système démarré" avant que `watcher.start()` retourne ; faire
   attendre les producteurs sur un `event.is_set()`.
-- `tools/review_code.py` utilise l'API `openai.ChatCompletion.create` **obsolète** (openai>=1.0 a cassé). Et il référence `main.py` qui n'existe pas. À supprimer ou réécrire.
-- `src/swarm_intelligence/__init__.py` contient **826 lignes de code métier** dans un `__init__.py`. À refactorer en `src/swarm_intelligence/swarm.py` quand on touchera à ce module.
-- `tensorflow` dans `requirements.txt` casse l'install sur Python 3.13. À séparer en `requirements-ml.txt` optionnel.
+- ~~`tools/review_code.py` API openai obsolète~~ ✅ **supprimé** (dette nettoyée).
+- ~~`swarm_intelligence/__init__.py` 826 lignes~~ ✅ **refactoré** : déplacé en `legacy_swarm.py`, `__init__.py` = lazy loader PEP 562 (import ne crashe plus sans numpy/networkx). NB : le module **propre** pour le partage de renseignement est `biocybe.swarm`.
+- ~~`tensorflow` casse l'install Python 3.13~~ ✅ **import guardé** dans `learning/reinforcement_learning.py` (try/except + `_require_tf()` message clair). TF n'est plus dans les deps ; module héritage non-intégré, utilisable sous Py≤3.12 seulement.
 - Le `setup.py` n'a pas été testé (pas sûr qu'il s'installe en mode editable proprement).
 - `config/biocybe.yaml` référence des chemins relatifs (`db/`, `quarantine/`) — le système ne marche que si lancé **depuis la racine du repo**. À normaliser plus tard.
 - `rules/yara/ransomware.yar` (ligne 205) utilise `pe.sections[0].entropy` qui requiert un build YARA avec module entropy. Sur yara-python 4.5.4 standard ça **ne compile pas**. Workaround actuel : le loader saute le fichier en mode tolérant. À résoudre proprement : soit retirer la condition entropy, soit imposer un build avec ce module.

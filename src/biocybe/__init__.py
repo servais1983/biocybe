@@ -9,18 +9,30 @@ Sous-packages disponibles (état actuel) :
 - biocybe_core       : noyau, bus de messages, classes de base               [implémenté]
 - macrophages        : surveillance passive (psutil)                         [implémenté]
 - lymphocytes_b      : détection par signatures (YARA + hashes)              [implémenté]
-- detection          : détecteurs de signatures bas niveau                   [implémenté]
-- explainability     : SHAP/LIME et cadre éthique                            [implémenté]
-- learning           : apprentissage par renforcement                        [implémenté]
-- swarm_intelligence : intelligence collective                               [implémenté]
-- isolation          : confinement des menaces                               [stub]
+- lymphocytes_t      : détection comportementale ML (IsolationForest)        [implémenté]
+- nk_cells           : réponse active (suspend/kill processus)               [implémenté]
+- memory             : mémoire immunitaire persistante (apprentissage)       [implémenté]
+- regeneration       : auto-régénération / self-healing (anti-ransomware)    [implémenté]
+- swarm              : immunité collective entre nœuds (bundles signés)      [implémenté]
+- intel              : threat intel (MalwareBazaar/URLhaus/ThreatFox)        [implémenté]
+- network_sentinel   : IOCs réseau dans le contenu des fichiers              [implémenté]
+- network_monitor    : surveillance live connexions + sinkhole DNS           [implémenté]
+- api                : API REST (Flask) + métriques Prometheus               [implémenté]
+- dashboard          : console SOC (Dash)                                    [implémenté]
+- audit              : journal immuable (chaîne SHA-256)                      [implémenté]
+- crypto             : quarantaine chiffrée AES-256-GCM                       [implémenté]
+- notify             : notifications sortantes (Slack/syslog/webhook)        [implémenté]
+- detection          : détecteurs de signatures bas niveau                   [héritage non-intégré]
+- explainability     : SHAP/LIME et cadre éthique                            [héritage non-intégré]
+- learning           : apprentissage par renforcement (TensorFlow)           [héritage non-intégré]
+- swarm_intelligence : colonies de fourmis (numpy/networkx)                  [héritage non-intégré]
 - neutralization     : élimination des menaces                               [stub]
 
 Auteur : BioCybe Team
 Licence : MIT
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "BioCybe Team"
 
 # Aucun import eager au niveau du package : chaque sous-module doit être

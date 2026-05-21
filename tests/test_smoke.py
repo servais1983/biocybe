@@ -16,6 +16,23 @@ def test_import_biocybe_package():
     import biocybe
 
     assert biocybe.__version__
+    # La version du package doit être alignée avec pyproject (0.2.x)
+    assert biocybe.__version__.startswith("0.2")
+
+
+def test_heritage_modules_import_without_heavy_deps():
+    """Les modules héritage ne doivent plus crasher l'import (deps lazy).
+
+    Régression : avant le nettoyage, `import biocybe.swarm_intelligence`
+    exigeait numpy+networkx au niveau module, et
+    `import biocybe.learning.reinforcement_learning` exigeait TensorFlow.
+    Désormais l'import passe ; les deps ne sont requises qu'à l'usage.
+    """
+    import importlib
+
+    # Ne doivent PAS lever ImportError au simple import
+    importlib.import_module("biocybe.swarm_intelligence")
+    importlib.import_module("biocybe.learning.reinforcement_learning")
 
 
 def test_import_core():

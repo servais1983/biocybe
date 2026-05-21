@@ -5,6 +5,29 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Nettoyage de dette technique
+
+Assainissement du repo — trois landmines historiques neutralisées,
+toutes vérifiées par un test de non-régression.
+
+- **`tools/review_code.py` supprimé** : utilisait `openai.ChatCompletion`
+  (API cassée depuis openai≥1.0) et référençait `main.py` inexistant.
+- **`swarm_intelligence/__init__.py` (845 lignes) refactoré** : le code
+  métier déplacé dans `legacy_swarm.py` ; `__init__.py` devient un lazy
+  loader PEP 562. `import biocybe.swarm_intelligence` ne crashe **plus**
+  sans numpy/networkx (import eager de ces deps = ancien landmine) — un
+  message clair pointe vers `pip install numpy networkx` ou vers
+  `biocybe.swarm` (le module propre, production-ready).
+- **Import TensorFlow guardé** dans `learning/reinforcement_learning.py` :
+  TF (incompatible Python 3.13) est désormais importé en `try/except` avec
+  un `_require_tf()` qui lève un message actionnable à l'usage seulement.
+  `import biocybe.learning.reinforcement_learning` passe sur Py3.13.
+- **`biocybe/__init__.py`** : version alignée `0.1.0 → 0.2.0` (matche
+  pyproject), docstring des sous-packages remise à jour (modules livrés
+  vs héritage non-intégré).
+- **Test `test_heritage_modules_import_without_heavy_deps`** : garantit
+  que ces imports ne régressent pas.
+
 ### Immunité collective (swarm) — partage de renseignement entre nœuds
 
 Interprétation **production-ready** de l'intelligence en essaim : quand
