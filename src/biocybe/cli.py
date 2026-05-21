@@ -1003,6 +1003,45 @@ def cmd_intel_stats(args: argparse.Namespace) -> int:
     return 0 if total > 0 else 1
 
 
+def cmd_dashboard_serve(args: argparse.Namespace) -> int:
+    """Lance le dashboard web de triage SOC (Phase 2.3.c)."""
+    from .dashboard.data import DashboardConfig
+
+    cfg = DashboardConfig(
+        quarantine_dir=args.quarantine_dir,
+        audit_path=args.audit_path,
+        signatures_db_path=args.db_path,
+    )
+    try:
+        from .dashboard.app import DashboardUnavailable, serve_dashboard
+    except ImportError:
+        print(
+            "Dependances dashboard absentes. Installe : pip install biocybe[web]",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        print(
+            f"Dashboard BioCybe : http://{args.host}:{args.port} "
+            f"(refresh {args.refresh_seconds}s, Ctrl+C pour arreter)",
+            file=sys.stderr,
+        )
+        serve_dashboard(
+            cfg,
+            host=args.host,
+            port=args.port,
+            refresh_seconds=args.refresh_seconds,
+            debug=args.debug,
+        )
+    except DashboardUnavailable as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("\nDashboard arrete.", file=sys.stderr)
+    return 0
+
+
 def _format_netmon_record(r) -> str:
     """Formate une ConnectionRecord en ligne lisible CLI."""
     marker = "!! IOC " if r.is_malicious else "   ok  "
@@ -1815,6 +1854,34 @@ def _build_parser() -> argparse.ArgumentParser:
     block_status.add_argument("--hosts-path", default=None)
     block_status.add_argument("--json", action="store_true")
 
+    # ---------------- dashboard (Phase 2.3.c — UI triage SOC) ----------------
+    dash_p = subparsers.add_parser(
+        "dashboard",
+        help="Dashboard web de triage SOC (lecture seule)",
+    )
+    dash_sub = dash_p.add_subparsers(dest="dashboard_command", required=True)
+
+    dash_serve = dash_sub.add_parser("serve", help="Lance le dashboard web")
+    dash_serve.add_argument("--host", default="127.0.0.1", help="Bind host (defaut 127.0.0.1)")
+    dash_serve.add_argument("--port", type=int, default=8050, help="Port (defaut 8050)")
+    dash_serve.add_argument(
+        "--quarantine-dir", default="quarantine", help="Dossier quarantaine"
+    )
+    dash_serve.add_argument(
+        "--audit-path", default="logs/audit.jsonl", help="Chemin de l'audit log"
+    )
+    dash_serve.add_argument(
+        "--db-path", default="db/signatures", help="Dossier signatures (feeds intel)"
+    )
+    dash_serve.add_argument(
+        "--refresh-seconds", type=int, default=15, help="Intervalle d'auto-refresh (defaut 15s)"
+    )
+    dash_serve.add_argument(
+        "--debug",
+        action="store_true",
+        help="Mode debug Dash (NE PAS utiliser en production)",
+    )
+
     # ---------------- notify (Phase 2.3.b — webhooks sortants) ---------------
     notify_p = subparsers.add_parser(
         "notify",
@@ -1911,6 +1978,9 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_stats(args)
         if args.intel_command == "age":
             return cmd_intel_age(args)
+    if args.command == "dashboard":
+        if args.dashboard_command == "serve":
+            return cmd_dashboard_serve(args)
     if args.command == "netmon":
         if args.netmon_command == "scan":
             return cmd_netmon_scan(args)

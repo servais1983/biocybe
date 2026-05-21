@@ -166,6 +166,14 @@ curl -H "Authorization: Bearer $TOKEN" -X POST \
      http://server:8080/api/v1/quarantine/<id>/restore
 curl http://server:8080/metrics                                       # Prometheus exposition
 
+# --- Dashboard SOC (Phase 2.3.c) ---
+pip install -e ".[web]"                                # Dash + Bootstrap + Plotly
+biocybe dashboard serve                                # http://127.0.0.1:8050 (lecture seule)
+biocybe dashboard serve --host 0.0.0.0 --port 8050 --refresh-seconds 30
+# → cartes KPI + onglets Quarantaine / Audit (vérif chaîne SHA-256 live) / Threat Intel
+# → triage uniquement ; la remédiation (restore/purge) reste en CLI/API avec audit trail
+# → derrière un reverse-proxy authentifié ou réseau d'admin isolé (pas d'auth applicative)
+
 # --- Daemon avec real-time monitoring ---
 biocybe --watch /var/log --watch /tmp                      # alert-only
 biocybe --watch /var/log --watch-quarantine                # auto-quarantine
@@ -192,7 +200,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **2.2.f** Fix règles ransomware | ✅ | `math.entropy` au lieu de `pe.entropy`, 6 règles actives |
 | **2.3.a** API REST + Prometheus | ✅ | Flask + waitress/gunicorn, Bearer token auth, `/healthz` `/api/v1/{scan,quarantine,info}` `/metrics`, 20 tests d'intégration |
 | **2.3.b** Webhooks Slack/syslog/HTTP | ✅ | NotifierManager avec failover, retry exp backoff, rate limit anti-storm, hook automatique sur quarantaine/détection RT/anomalie TCell, RFC 5424 syslog, 19 tests |
-| **2.3.c** Dashboard Dash | ⏳ | UI visuelle pour triage SOC |
+| **2.3.c** Dashboard Dash | ✅ | UI triage SOC (Dash + Bootstrap dark), lecture seule : cartes KPI + onglets Quarantaine/Audit/Threat Intel, charts répartition + fraicheur feeds, vérif intégrité chaîne audit en live, auto-refresh, servi via waitress. Couche données découplée et testable. `biocybe dashboard serve`. 11 tests |
 | **2.4.a** Audit log immuable | ✅ | JSONL append-only + chaîne SHA-256 tamper-evident, `audit show/verify`, intégré quarantine/restore, 12 tests (tampering, swap, suppression détectés) |
 | **2.4.b** Quarantaine chiffrée AES-256-GCM | ✅ | Format BCE1 (magic+nonce+tag+ciphertext), AAD=SHA-256 du clair (double sécurité), clé via env `BIOCYBE_QUARANTINE_KEY` ou KMS, `biocybe crypto generate-key`, 17 tests (tampering ciphertext/header/aad/clé tous détectés) |
 | **2.4.c** Supply chain hardening | ✅ | SBOM SPDX + CycloneDX via syft, scan vulnérabilités via grype, pip-audit strict, SECURITY.md, tous les artefacts archivés 30j par run CI |

@@ -5,6 +5,60 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 2.3.c : dashboard SOC (Dash) — UI de triage en lecture seule
+
+Première interface visuelle de BioCybe. Console de triage pour un
+analyste SOC, agrégeant les artefacts produits par les phases
+précédentes : quarantaine, audit log, threat intel. **Lecture seule** :
+aucune action destructive depuis l'UI — la remédiation (restore, purge)
+reste dans la CLI/API avec audit trail, parce qu'un opérateur ne
+supprime pas une preuve d'un clic sans traçabilité.
+
+#### Architecture en deux couches
+
+- **`biocybe.dashboard.data`** — couche données **découplée de Dash**.
+  `DashboardData` lit les artefacts disque et renvoie des structures
+  Python simples : `quarantine_summary()`, `audit_summary()`,
+  `intel_summary()`, `overview()`, `snapshot()`. Testable sans
+  navigateur, réutilisable pour export JSON/SIEM. `import
+  biocybe.dashboard` fonctionne **même sans l'extra [web]**.
+- **`biocybe.dashboard.app`** — UI Dash (imports gardés). Cartes KPI +
+  3 onglets, charts Plotly, auto-refresh `dcc.Interval`. `create_dashboard()`
+  lève `DashboardUnavailable` proprement si dash/plotly/dbc absents.
+
+#### Contenu de l'UI
+
+  - **Cartes KPI** : total quarantaine (couleur = pire sévérité),
+    entrées audit (couleur = état chaîne), IOCs chargés (couleur =
+    fraicheur feeds)
+  - **Onglet Quarantaine** : table triable/filtrable + barres par
+    sévérité / famille / cellule détectrice
+  - **Onglet Audit** : bannière d'intégrité de chaîne SHA-256 vérifiée
+    **en live** (rouge si altération détectée), barres par action /
+    résultat, table des événements récents
+  - **Onglet Threat Intel** : bannière fraicheur, barres IOCs par type
+    + âge des feeds, table des feeds (réutilise la Phase 3.g)
+
+#### CLI
+
+  - `biocybe dashboard serve [--host] [--port] [--refresh-seconds]
+    [--quarantine-dir] [--audit-path] [--db-path] [--debug]`
+  - Servi en prod via **waitress** (le serveur Dash intégré n'est utilisé
+    qu'en fallback avec warning). Bind `127.0.0.1` par défaut — pensé
+    pour tourner derrière un reverse-proxy authentifié ou sur réseau
+    d'admin isolé.
+
+#### Tests (`tests/test_dashboard.py`, 11 tests + skips conditionnels)
+
+  - Couche données : quarantine summary (tri, agrégats, taille,
+    chiffré), audit summary avec **détection de tampering live**, audit
+    manquant, intel summary, overview KPIs, snapshot JSON-sérialisable
+  - `import biocybe.dashboard` sans dash → pas de crash
+  - Construction Dash (skip si [web] absent) : layout présent, serveur
+    Flask exposé, 2 callbacks enregistrés
+  - Smoke test manuel validé : `GET /` 200, callback KPI rend les vraies
+    données seedées (LockBit/critical), waitress disponible
+
 ### Phase 3.g : refresh auto des feeds + monitoring de fraîcheur
 
 Le threat intel est périssable : un domaine flaggé il y a 6 mois a
