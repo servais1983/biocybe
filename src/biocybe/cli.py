@@ -661,6 +661,11 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
     # Importe l'audit + types notify une seule fois
     from .audit import audit as _audit
 
+    # Cellule NK optionnelle : réponse active si config.nk.enabled +
+    # config.nk.auto_respond. Ultra-conservatrice par défaut (dry-run).
+    nk_cell = _build_nk_cell_from_config(config)
+    nk_auto = bool((config or {}).get("nk", {}).get("auto_respond", False))
+
     def _on_match(record) -> None:
         hit = record.hit
         details = {
@@ -701,6 +706,21 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
             except Exception as exc:
                 logger.error("netmon: notify a échoué : %s", exc)
 
+        # 3) Réponse active NK (optionnelle, conservatrice)
+        if nk_cell is not None and nk_auto and record.pid is not None:
+            try:
+                from .nk_cells import NKDecision
+
+                decision: NKDecision = nk_cell.evaluate(
+                    pid=record.pid,
+                    process_name=record.process_name,
+                    confidence=hit.confidence if hit else 0,
+                    reason=f"netmon: {record.process_name} -> {record.raddr} ({hit.source if hit else '?'})",
+                )
+                nk_cell.respond(decision)
+            except Exception as exc:
+                logger.error("netmon: réponse NK a échoué : %s", exc)
+
     service = NetworkMonitorService(
         db_path,
         interval=interval,
@@ -708,6 +728,37 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
         on_match=_on_match,
     )
     return service
+
+
+def _build_nk_cell_from_config(config: dict):
+    """Construit une NKCell depuis config.nk, ou None si section absente.
+
+    N'active rien tout seul : les garde-fous (enabled, dry_run, allow_kill)
+    sont lus depuis la config et restent conservateurs par défaut.
+    """
+    nk_cfg = (config or {}).get("nk") or {}
+    if not nk_cfg:
+        return None
+    try:
+        from .nk_cells import NKAction, NKCell, NKConfig
+    except Exception as exc:
+        logger.warning("NK cell indisponible : %s", exc)
+        return None
+
+    try:
+        default_action = NKAction(nk_cfg.get("default_action", "suspend"))
+    except ValueError:
+        default_action = NKAction.SUSPEND
+
+    cfg = NKConfig(
+        enabled=bool(nk_cfg.get("enabled", False)),
+        dry_run=bool(nk_cfg.get("dry_run", True)),
+        min_confidence=int(nk_cfg.get("min_confidence", 90)),
+        default_action=default_action,
+        allow_kill=bool(nk_cfg.get("allow_kill", False)),
+        max_actions_per_minute=int(nk_cfg.get("max_actions_per_minute", 10)),
+    )
+    return NKCell(cfg)
 
 
 def cmd_notify_test(args: argparse.Namespace) -> int:
@@ -1078,6 +1129,130 @@ def cmd_intel_stats(args: argparse.Namespace) -> int:
         if total == 0:
             print("\nAucun IOC chargé. Lance : biocybe intel update --source all")
     return 0 if total > 0 else 1
+
+
+def cmd_nk_respond(args: argparse.Namespace) -> int:
+    """Réponse NK manuelle sur un PID (suspend/terminate/kill)."""
+    from .nk_cells import NKAction, NKCell, NKConfig
+
+    # Récupère le nom du process pour le garde-fou de protection
+    process_name = ""
+    try:
+        import psutil
+
+        process_name = psutil.Process(args.pid).name()
+    except Exception as exc:
+        print(f"Avertissement : impossible de lire le process {args.pid} : {exc}", file=sys.stderr)
+
+    cfg = NKConfig(
+        enabled=True,
+        dry_run=not args.execute,
+        min_confidence=args.min_confidence,
+        allow_kill=args.allow_kill,
+        default_action=NKAction(args.action),
+    )
+    nk = NKCell(cfg)
+    decision = nk.evaluate(
+        pid=args.pid,
+        process_name=process_name,
+        confidence=args.confidence,
+        reason=args.reason,
+        requested_action=NKAction(args.action),
+    )
+    decision = nk.respond(decision)
+
+    if args.json:
+        print(json.dumps(decision.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(f"Cible      : pid={decision.pid} ({decision.process_name or '?'})")
+        print(f"Action     : {decision.action.value} (demandee: {decision.requested_action.value})")
+        print(f"Confiance  : {decision.confidence}/100")
+        print(f"Dry-run    : {decision.dry_run}")
+        if decision.refused_reason:
+            print(f"Refusee    : {decision.refused_reason}")
+        if decision.error:
+            print(f"Erreur     : {decision.error}")
+        if decision.executed:
+            print("Resultat   : EXECUTE")
+            if decision.action.value == "suspend":
+                print("  -> process gele. Reveiller : biocybe nk resume --pid "
+                      f"{decision.pid}")
+        elif decision.dry_run and decision.action.value != "none":
+            print("Resultat   : DRY-RUN (rien execute). Ajoute --execute pour agir.")
+
+    # Exit : 0 si action effectuee ou dry-run propre, 1 si refusee/erreur
+    if decision.error or (decision.refused_reason and decision.action.value == "none"):
+        return 1
+    return 0
+
+
+def cmd_nk_resume(args: argparse.Namespace) -> int:
+    """Réveille un process suspendu par la NK cell."""
+    from .nk_cells import NKCell, NKConfig
+
+    nk = NKCell(NKConfig(enabled=True, dry_run=False))
+    ok = nk.resume_process(args.pid)
+    if ok:
+        print(f"Process {args.pid} repris.")
+        return 0
+    print(f"Echec du resume pour {args.pid} (process absent ou access denied).", file=sys.stderr)
+    return 1
+
+
+def cmd_nk_status(args: argparse.Namespace) -> int:
+    """Affiche la config NK + teste si un PID est protégé."""
+    from .nk_cells import NKCell, NKConfig
+
+    cfg = _load_config(args.config) or {}
+    nk_cfg = cfg.get("nk") or {}
+    nk = NKCell(
+        NKConfig(
+            enabled=nk_cfg.get("enabled", False),
+            dry_run=nk_cfg.get("dry_run", True),
+            min_confidence=nk_cfg.get("min_confidence", 90),
+            allow_kill=nk_cfg.get("allow_kill", False),
+        )
+    )
+    info = {
+        "enabled": nk.config.enabled,
+        "dry_run": nk.config.dry_run,
+        "min_confidence": nk.config.min_confidence,
+        "allow_kill": nk.config.allow_kill,
+        "default_action": nk.config.default_action.value,
+        "max_actions_per_minute": nk.config.max_actions_per_minute,
+    }
+    if args.pid is not None:
+        process_name = ""
+        try:
+            import psutil
+
+            process_name = psutil.Process(args.pid).name()
+        except Exception:
+            pass
+        protected = nk.is_protected(args.pid, process_name)
+        info["pid_test"] = {
+            "pid": args.pid,
+            "process_name": process_name,
+            "protected": protected is not None,
+            "protected_reason": protected,
+        }
+
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+    else:
+        print("Cellule NK — configuration effective")
+        print(f"  enabled         : {info['enabled']}")
+        print(f"  dry_run         : {info['dry_run']}")
+        print(f"  min_confidence  : {info['min_confidence']}")
+        print(f"  allow_kill      : {info['allow_kill']}")
+        print(f"  default_action  : {info['default_action']}")
+        print(f"  max_actions/min : {info['max_actions_per_minute']}")
+        if "pid_test" in info:
+            t = info["pid_test"]
+            print(f"\n  Test PID {t['pid']} ({t['process_name'] or '?'}) :")
+            print(f"    protege : {t['protected']}"
+                  + (f" ({t['protected_reason']})" if t["protected_reason"] else ""))
+    return 0
 
 
 def cmd_dashboard_serve(args: argparse.Namespace) -> int:
@@ -1976,6 +2151,51 @@ def _build_parser() -> argparse.ArgumentParser:
     block_status.add_argument("--hosts-path", default=None)
     block_status.add_argument("--json", action="store_true")
 
+    # ---------------- nk (Cellules NK — réponse active) ---------------------
+    nk_p = subparsers.add_parser(
+        "nk",
+        help="Cellules NK : reponse active sur processus malveillants (suspend/kill)",
+    )
+    nk_sub = nk_p.add_subparsers(dest="nk_command", required=True)
+
+    nk_respond = nk_sub.add_parser(
+        "respond", help="Repond a un processus (suspend par defaut, dry-run par defaut)"
+    )
+    nk_respond.add_argument("--pid", type=int, required=True, help="PID du processus cible")
+    nk_respond.add_argument(
+        "--action",
+        choices=["suspend", "terminate", "kill"],
+        default="suspend",
+        help="Action (defaut suspend, reversible). kill exige --allow-kill.",
+    )
+    nk_respond.add_argument(
+        "--confidence", type=int, default=100, help="Confiance de la detection (0-100)"
+    )
+    nk_respond.add_argument("--reason", default="manuel (analyste)", help="Raison de l'action")
+    nk_respond.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute REELLEMENT (sinon dry-run : decrit sans agir)",
+    )
+    nk_respond.add_argument(
+        "--allow-kill",
+        action="store_true",
+        help="Autorise l'action kill (SIGKILL). Sans, kill est downgrade en suspend.",
+    )
+    nk_respond.add_argument(
+        "--min-confidence", type=int, default=90, help="Seuil de confiance minimal (defaut 90)"
+    )
+    nk_respond.add_argument("--json", action="store_true")
+
+    nk_resume = nk_sub.add_parser("resume", help="Reveille un processus suspendu")
+    nk_resume.add_argument("--pid", type=int, required=True)
+
+    nk_status = nk_sub.add_parser(
+        "status", help="Affiche la config NK effective + process protege test"
+    )
+    nk_status.add_argument("--pid", type=int, default=None, help="Teste si ce PID est protege")
+    nk_status.add_argument("--json", action="store_true")
+
     # ---------------- dashboard (Phase 2.3.c — UI triage SOC) ----------------
     dash_p = subparsers.add_parser(
         "dashboard",
@@ -2100,6 +2320,13 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_stats(args)
         if args.intel_command == "age":
             return cmd_intel_age(args)
+    if args.command == "nk":
+        if args.nk_command == "respond":
+            return cmd_nk_respond(args)
+        if args.nk_command == "resume":
+            return cmd_nk_resume(args)
+        if args.nk_command == "status":
+            return cmd_nk_status(args)
     if args.command == "dashboard":
         if args.dashboard_command == "serve":
             return cmd_dashboard_serve(args)

@@ -5,6 +5,79 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Cellules NK (Natural Killer) — réponse active sur processus malveillants
+
+Premier module BioCybe qui passe de la **détection** à la **réponse
+active**. Une `NKCell` peut suspendre, terminer ou tuer un processus
+identifié malveillant (par le NetworkMonitor 3.h, le scanner, ou une
+décision d'analyste). C'est le SEUL module qui pose des actions
+destructives — d'où une obsession de la sécurité.
+
+#### Garde-fous (défense en profondeur, chacun bloque indépendamment)
+
+1. **Désactivée par défaut** (`enabled=False`) — rien ne s'exécute sans
+   activation explicite.
+2. **Dry-run par défaut** (`dry_run=True`) — même activée, décrit ce
+   qu'elle ferait sans agir.
+3. **Liste de process protégés** : ne touche JAMAIS init/systemd/kernel/
+   lsass/csrss/services/svchost/explorer, le shell de l'admin, BioCybe
+   lui-même ni son parent. PIDs 0/1/4 intouchables. Cross-platform.
+4. **Seuil de confiance** (défaut 90/100) — n'agit que sur les
+   détections fiables.
+5. **`kill` opt-in séparé** (`allow_kill=True`) — sinon downgrade
+   automatique vers l'action par défaut. L'action par défaut est
+   `SUSPEND`, **réversible** (`resume`), idéale pour figer un process en
+   attendant une décision humaine/forensique.
+6. **Anti-PID-recycling** : re-vérifie le nom du process au moment
+   d'agir ; si le PID a été recyclé pour un autre process entre
+   `evaluate()` et `respond()`, refus.
+7. **Rate-limit** (défaut 10 actions/min) — anti-emballement.
+8. **Audit systématique** : chaque décision ET action (exécutée,
+   refusée, dry-run, en échec) dans la chaîne immuable.
+
+#### API
+
+- `NKCell.evaluate(...)` → `NKDecision` (décide, ne touche rien)
+- `NKCell.respond(decision)` → exécute (sauf dry-run)
+- `NKCell.resume_process(pid)` → annule un SUSPEND
+- `NKCell.isolate_host(hostname)` → sinkhole DNS via `HostsBlocker` (3.f)
+- `NKAction` : NONE / SUSPEND / TERMINATE / KILL / ISOLATE_NETWORK
+
+#### CLI
+
+  - `biocybe nk respond --pid PID [--action suspend|terminate|kill]
+    [--execute] [--allow-kill] [--confidence N] [--min-confidence N]` —
+    dry-run par défaut (sans `--execute`)
+  - `biocybe nk resume --pid PID` — réveille un process suspendu
+  - `biocybe nk status [--pid PID]` — config effective + test de
+    protection d'un PID
+
+#### Intégration daemon (opt-in)
+
+Si `nk.enabled` + `nk.auto_respond` dans la config, le `on_match` du
+NetworkMonitor (3.h) appelle la NK cell : un process qui contacte un C2
+connu est suspendu automatiquement (selon la config). Chaîne complète
+**détection → réponse** en un daemon. Reste dry-run tant qu'on ne l'a
+pas explicitement désactivé.
+
+#### Tests (`tests/test_nk_cell.py`, 22 tests)
+
+  - Garde-fous : désactivée refuse, seuil de confiance, PIDs protégés
+    (0/1/4), noms protégés (lsass/systemd/svchost/init/explorer), process
+    propre, noms extra, downgrade kill sans allow_kill, kill avec opt-in
+  - Exécution : dry-run n'appelle pas psutil, suspend/kill réels (mockés)
+    appellent les bonnes primitives, PID recyclé refusé, NoSuchProcess /
+    AccessDenied gérés, rate-limit (2 exécutés / 3 bloqués), resume,
+    isolate_host préserve l'existant
+  - CLI : dry-run par défaut, process protégé → exit 1, status, test PID
+
+#### Smoke test réel validé
+
+Suspend/resume/kill exécutés sur un **vrai process** (python sleep) :
+status `running` → `stopped` (suspend) → `running` (resume) → terminé
+(kill). Le garde-fou refuse bien `python.exe`. Pipeline daemon
+détection→réponse (dry-run) validé sans crash.
+
 ### Validation end-to-end du pipeline threat intel (Phases 3.d → 3.h)
 
 Nouveau `scripts/validate_intel_pipeline.py` — harnais de validation

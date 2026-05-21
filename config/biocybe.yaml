@@ -305,3 +305,16 @@ netmon:
   interval: 5                 # polling en secondes (1-5 recommande)
   reverse_dns: false          # resolution PTR des IPs (lent, enrichit)
   db_path: "db/signatures"    # racine des feeds IOC
+
+# Cellule NK (Natural Killer) — reponse active sur processus malveillants
+# (le seul module qui pose des actions destructives). ULTRA-conservateur :
+# desactive + dry-run par defaut. Quand netmon detecte un process parlant
+# a un C2 connu, la NK cell peut le suspendre (reversible) ou le tuer.
+nk:
+  enabled: false            # true pour activer la reponse active
+  dry_run: true             # true = decrit sans agir (DESACTIVER avec prudence)
+  auto_respond: false       # true = repond auto aux detections netmon
+  min_confidence: 90        # n'agit que sur detections >= ce score
+  default_action: "suspend" # suspend (reversible) | terminate | kill
+  allow_kill: false         # kill (SIGKILL) exige cet opt-in explicite
+  max_actions_per_minute: 10

@@ -184,6 +184,18 @@ biocybe --watch /tmp --watch-quarantine --netmon           # full stack live
 # → chaque connexion vers un IOC connu : alerte NotifierManager + audit log immuable
 # → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
 # → activable aussi via config : netmon.enabled: true
+
+# --- Cellules NK : réponse active sur processus malveillants ---
+biocybe nk status                                          # config NK effective + test protection
+biocybe nk status --pid 1                                  # le PID 1 est-il protégé ? (oui)
+biocybe nk respond --pid 12345                             # DRY-RUN par défaut : décrit sans agir
+biocybe nk respond --pid 12345 --execute                  # suspend (réversible) le process
+biocybe nk resume --pid 12345                              # réveille un process suspendu
+biocybe nk respond --pid 12345 --action kill --allow-kill --execute   # SIGKILL (opt-in explicite)
+# → garde-fous : désactivée+dry-run par défaut, liste de process protégés
+#   (init/systemd/lsass/svchost/BioCybe lui-même...), seuil de confiance,
+#   anti-PID-recycling, rate-limit, audit systématique
+# → réponse auto sur détection netmon : config nk.enabled + nk.auto_respond
 biocybe --watch /var/log --watch-quarantine --watch-dry-run  # simulation
 ```
 
@@ -218,6 +230,10 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.e** Sentinelle réseau IOC-aware | ✅ | `IOCLookup` charge les feeds en mémoire (lookup O(1) hash/host/url/ip avec fallback parent domain). `NetworkSentinel` extrait URLs/IPs/hosts/hashes du contenu fichier (regex ASCII anti-binaire, denylist 30+ TLDs courants anti-FP, dédup, cap 50MB). Intégré au scanner via `--network-scan`. CLI `biocybe intel lookup <value>` et `intel stats`. 23 tests |
 | **3.f** Surveillance live + sinkhole DNS | ✅ | `NetworkMonitor` polling `psutil.net_connections('inet')` (cross-platform, pas de pcap/eBPF), match remote IP/host contre `IOCLookup`, callback `on_match`, rate-limit anti-storm (N alertes/clé/heure), filtre loopback/link-local/multicast, reverse DNS optionnel. `HostsBlocker` : sinkhole DNS via section marquée du fichier hosts (écriture atomique, backup auto, validation stricte hostnames, cap 50k entrées). CLI `biocybe netmon {scan,watch}` + `netmon block {apply,clear,status}`. 21 tests |
 | **3.g** Refresh auto + monitoring fraîcheur | ✅ | `feed_age` lit les `last_update.txt` → âge/staleness/IOC count par source. CLI `biocybe intel age` (exit 0/1/2). Gauges Prometheus `biocybe_intel_feed_age_seconds` / `_iocs_total` / `_stale` peuplées au scrape `/metrics`. Check `/readyz` `intel_feeds_fresh` (non bloquant). Templates de déploiement systemd (.service+.timer), k8s CronJob, crontab avec règles Alertmanager. 11 tests |
+| **3.h** Daemon unifié (netmon live) | ✅ | `NetworkMonitorService` intégré au daemon : surveillance des connexions sortantes en continu, `on_match` → audit immuable + notification, rechargement à chaud des IOCs après cron `intel update`. Flags `--netmon`/`--netmon-interval`, config `netmon.*`. 9 tests |
+| **2.3.c** Dashboard SOC (Dash) | ✅ | UI triage lecture seule (Dash + Bootstrap dark) : cartes KPI + onglets Quarantaine/Audit/Threat Intel, vérif chaîne audit SHA-256 en live, charts Plotly, auto-refresh, servi waitress. Couche données découplée et testable. `biocybe dashboard serve`. 11 tests |
+| **Cellules NK** Réponse active | ✅ | `NKCell` : suspend (réversible) / terminate / kill de processus malveillants. Garde-fous : désactivée+dry-run par défaut, liste de process protégés (init/systemd/lsass/svchost/BioCybe...), seuil de confiance, anti-PID-recycling, rate-limit, audit systématique. Isolation réseau via sinkhole DNS. CLI `nk {respond,resume,status}` + réponse auto sur détection netmon (opt-in). 22 tests |
+| **Validation E2E** Pipeline intel | ✅ | `scripts/validate_intel_pipeline.py` : 35 vérifications réelles (vraie connexion socket observée par psutil), IOCs RFC 5737/2606, 0 mock de logique métier |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
 
