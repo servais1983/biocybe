@@ -5,6 +5,59 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Immunité collective (swarm) — partage de renseignement entre nœuds
+
+Interprétation **production-ready** de l'intelligence en essaim : quand
+un nœud BioCybe découvre une menace, les autres gagnent l'immunité sans
+l'avoir rencontrée (herd immunity). Pas de P2P fragile —
+**transport-agnostique** via bundles signés, partageables par n'importe
+quel canal (volume NFS/S3, pull HTTP, rsync, CronJob).
+
+#### Nouveau module `biocybe.swarm.SwarmSync`
+
+- **Export** : `export_bundle()` / `write_bundle()` — sérialise les
+  indicateurs **à haute confiance** de la mémoire immunitaire locale
+  dans un bundle JSON signé HMAC-SHA256.
+- **Import** : `import_bundle()` / `read_and_import()` / `import_dir()`
+  — fusionne les bundles des pairs dans la mémoire locale.
+- `ImmuneMemory.iter_shareable(min_confidence)` — sélectionne les
+  menaces confirmées OU malveillantes ≥ seuil.
+
+GARDE-FOUS :
+  - **On ne partage JAMAIS les faux positifs** (décision locale propre à
+    l'environnement du nœud) — seulement les menaces.
+  - **Signature HMAC** (`BIOCYBE_SWARM_KEY`) : un nœud n'importe que les
+    bundles d'un pair partageant la clé du swarm. Bundle falsifié /
+    mauvaise clé / non signé (si clé requise) → **rejeté**.
+  - **L'analyste local garde la priorité** : un indicateur marqué FP
+    localement n'est pas réintroduit par un pair.
+  - **Pas de boucle** : on ignore notre propre bundle ; provenance
+    taguée `swarm:<node_id>`.
+  - Une confirmation malveillante d'un pair **propage** la confirmation
+    (immunité collective renforcée).
+
+#### CLI
+
+  - `biocybe swarm export <file> [--min-confidence N] [--node-id ID]`
+  - `biocybe swarm import <file|dir> [--json]` (exit 1 si signature KO)
+  - `biocybe swarm status` — combien d'indicateurs partageables + état signature
+
+#### Tests (`tests/test_swarm.py`, 14 tests)
+
+  - Export : haute confiance partagée, **FP jamais partagés**, basse
+    confiance exclue
+  - **Immunité collective** : node A → node B apprend sans avoir vu la
+    menace ; FP local respecté ; propre bundle ignoré ; confirmation propagée
+  - **Sécurité HMAC** : bundle signé vérifié, falsifié rejeté, mauvaise
+    clé rejetée, non signé rejeté si clé requise
+  - `import_dir` agrège ; CLI cycle export→import complet
+
+Smoke test réel : Paris confirme LockBit → bundle signé → Lyon (vierge)
+importe → immunisé ; bundle forgé (mauvaise clé) → rejeté.
+
+> NB : module distinct du legacy `swarm_intelligence/` (826 lignes non
+> intégrées, à refactorer). `biocybe.swarm` est la voie propre.
+
 ### Auto-régénération automatique dans le daemon (anti-ransomware live)
 
 Prolongement spectaculaire : le daemon **restaure les fichiers sans

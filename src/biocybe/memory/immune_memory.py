@@ -326,6 +326,26 @@ class ImmuneMemory:
         ).fetchall()
         return [MemoryRecord.from_row(r) for r in rows]
 
+    def iter_shareable(self, min_confidence: int = 80) -> list[MemoryRecord]:
+        """Indicateurs partageables avec le swarm (immunité collective).
+
+        Critère : menaces confirmées par un analyste OU malveillantes à
+        haute confiance. On NE partage JAMAIS les faux positifs confirmés
+        (décision locale, propre à l'environnement de ce nœud).
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM memory WHERE "
+            "(disposition = ? OR (verdict = ? AND confidence >= ?)) "
+            "AND disposition != ?",
+            (
+                DISPOSITION_CONFIRMED_MALICIOUS,
+                VERDICT_MALICIOUS,
+                int(min_confidence),
+                DISPOSITION_CONFIRMED_BENIGN,
+            ),
+        ).fetchall()
+        return [MemoryRecord.from_row(r) for r in rows]
+
     def most_seen(self, limit: int = 50) -> list[MemoryRecord]:
         rows = self._conn.execute(
             "SELECT * FROM memory ORDER BY times_seen DESC LIMIT ?", (limit,)

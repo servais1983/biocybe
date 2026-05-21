@@ -191,6 +191,14 @@ biocybe --watch /tmp --netmon --metrics-port 9091          # + endpoint Promethe
 # → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
 # → activable aussi via config : netmon.enabled: true
 
+# --- Immunité collective (swarm) : partage entre nœuds BioCybe ---
+export BIOCYBE_SWARM_KEY="secret-partage-du-swarm"         # signe/vérifie les bundles
+biocybe swarm status                                       # combien d'indicateurs partageables ?
+biocybe swarm export shared/$(hostname).json               # exporte mes menaces confirmées
+biocybe swarm import shared/                               # importe celles des pairs
+# → herd immunity : quand un nœud découvre une menace, les autres l'apprennent.
+#   Jamais de faux positif partagé, signature HMAC, l'analyste local prime.
+
 # --- Auto-régénération : restauration anti-ransomware (self-healing) ---
 biocybe regen baseline /etc/nginx /var/www/html           # capture l'état sain
 biocybe regen drift                                        # qu'est-ce qui a changé ? (exit 1 si drift)
@@ -309,7 +317,13 @@ BioCybe s'inspire du système immunitaire pour créer une défense en profondeur
 - **Anti-ransomware** : restaure les fichiers chiffrés depuis le coffre intègre
 - Garde-fous : dry-run par défaut, vérification d'intégrité avant écriture, atomicité, audit
 
-### 7. Autres modules inspirés de la nature
+### 7. Immunité collective / Swarm (Défense collaborative) ✅
+- Partage de renseignement entre nœuds BioCybe (herd immunity)
+- Quand un nœud découvre une menace, les autres l'apprennent sans l'avoir vue
+- Bundles signés HMAC, transport-agnostique (volume / HTTP / rsync)
+- Garde-fous : jamais de faux positif partagé, l'analyste local garde la priorité
+
+### 8. Autres modules inspirés de la nature
 - **Algorithmes de colonies de fourmis** pour la détection collaborative
 - **Systèmes épigénétiques** pour l'adaptation aux environnements spécifiques
 - **Simulateurs coévolutifs** pour l'entraînement défensif

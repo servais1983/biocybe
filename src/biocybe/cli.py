@@ -1241,6 +1241,76 @@ def _guess_indicator_type(value: str) -> str:
     return "family"
 
 
+def cmd_swarm_export(args: argparse.Namespace) -> int:
+    """Exporte un bundle signé des menaces partageables (immunité collective)."""
+    from .memory import ImmuneMemory
+    from .swarm import SWARM_KEY_ENV, SwarmSync
+
+    mem = ImmuneMemory(args.db_path)
+    sync = SwarmSync(mem, node_id=args.node_id)
+    count = sync.write_bundle(args.output, min_confidence=args.min_confidence)
+    mem.close()
+    print(f"Bundle exporte : {count} indicateurs -> {args.output}")
+    if not sync.swarm_key:
+        print(
+            f"  (non signe : exporte {SWARM_KEY_ENV} pour signer les bundles en prod)",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def cmd_swarm_import(args: argparse.Namespace) -> int:
+    """Importe un bundle / dossier de bundles pairs dans la mémoire locale."""
+    from pathlib import Path as _P
+
+    from .memory import ImmuneMemory
+    from .swarm import SwarmSync
+
+    mem = ImmuneMemory(args.db_path)
+    sync = SwarmSync(mem, node_id=args.node_id)
+    src = _P(args.source)
+    stats = sync.import_dir(src) if src.is_dir() else sync.read_and_import(src)
+    mem.close()
+
+    if args.json:
+        print(json.dumps(stats.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        if stats.signature_failed:
+            print("ATTENTION : au moins un bundle a une signature invalide (rejete).",
+                  file=sys.stderr)
+        print(f"Import swarm : {stats.imported} nouveaux, {stats.updated} mis a jour")
+        print(f"  FP locaux respectes : {stats.skipped_local_fp}")
+        if stats.skipped_own:
+            print(f"  Ignores (notre noeud) : {stats.skipped_own}")
+        if stats.errors:
+            print(f"  Erreurs : {len(stats.errors)}")
+    return 1 if stats.signature_failed or stats.errors else 0
+
+
+def cmd_swarm_status(args: argparse.Namespace) -> int:
+    from .memory import ImmuneMemory
+    from .swarm import SwarmSync
+
+    mem = ImmuneMemory(args.db_path)
+    sync = SwarmSync(mem, node_id=args.node_id if hasattr(args, "node_id") else None)
+    shareable = mem.iter_shareable(min_confidence=args.min_confidence)
+    signed = sync.swarm_key is not None
+    mem.close()
+
+    if args.json:
+        print(json.dumps({
+            "node_id": sync.node_id,
+            "shareable_count": len(shareable),
+            "min_confidence": args.min_confidence,
+            "signed": signed,
+        }, indent=2, ensure_ascii=False))
+    else:
+        print(f"Noeud swarm      : {sync.node_id}")
+        print(f"  Partageables   : {len(shareable)} indicateurs (conf >= {args.min_confidence})")
+        print(f"  Signature HMAC : {'activee' if signed else 'NON (mode dev)'}")
+    return 0
+
+
 def _make_healer(args):
     from .regeneration import SelfHealer
 
@@ -2543,6 +2613,40 @@ def _build_parser() -> argparse.ArgumentParser:
     block_status.add_argument("--hosts-path", default=None)
     block_status.add_argument("--json", action="store_true")
 
+    # ---------------- swarm (Immunité collective) ----------------------------
+    swarm_p = subparsers.add_parser(
+        "swarm",
+        help="Immunite collective : partage de renseignement entre noeuds BioCybe",
+    )
+    swarm_sub = swarm_p.add_subparsers(dest="swarm_command", required=True)
+
+    DEFAULT_MEM = "db/memory/immune_memory.db"
+
+    swarm_export = swarm_sub.add_parser(
+        "export", help="Exporte un bundle signe des menaces a haute confiance"
+    )
+    swarm_export.add_argument("output", help="Fichier de sortie (JSON)")
+    swarm_export.add_argument("--db-path", default=DEFAULT_MEM)
+    swarm_export.add_argument("--node-id", default=None, help="Identifiant du noeud (defaut hostname)")
+    swarm_export.add_argument(
+        "--min-confidence", type=int, default=80, help="Confiance min a partager (defaut 80)"
+    )
+
+    swarm_import = swarm_sub.add_parser(
+        "import", help="Importe un bundle ou un dossier de bundles pairs"
+    )
+    swarm_import.add_argument("source", help="Fichier .json ou dossier de bundles")
+    swarm_import.add_argument("--db-path", default=DEFAULT_MEM)
+    swarm_import.add_argument("--node-id", default=None)
+    swarm_import.add_argument("--json", action="store_true")
+
+    swarm_status = swarm_sub.add_parser(
+        "status", help="Combien d'indicateurs seraient partages ?"
+    )
+    swarm_status.add_argument("--db-path", default=DEFAULT_MEM)
+    swarm_status.add_argument("--min-confidence", type=int, default=80)
+    swarm_status.add_argument("--json", action="store_true")
+
     # ---------------- regen (Auto-régénération / self-healing) ---------------
     regen_p = subparsers.add_parser(
         "regen",
@@ -2801,6 +2905,13 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_stats(args)
         if args.intel_command == "age":
             return cmd_intel_age(args)
+    if args.command == "swarm":
+        if args.swarm_command == "export":
+            return cmd_swarm_export(args)
+        if args.swarm_command == "import":
+            return cmd_swarm_import(args)
+        if args.swarm_command == "status":
+            return cmd_swarm_status(args)
     if args.command == "regen":
         if args.regen_command == "baseline":
             return cmd_regen_baseline(args)
