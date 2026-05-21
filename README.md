@@ -181,6 +181,9 @@ biocybe --watch /var/log --watch-quarantine                # auto-quarantine
 # --- Daemon + surveillance réseau live (Phase 3.h) ---
 biocybe --netmon                                           # connexions sortantes vs IOCs
 biocybe --watch /tmp --watch-quarantine --netmon           # full stack live
+biocybe --watch /tmp --netmon --metrics-port 9091          # + endpoint Prometheus du daemon
+# → curl http://localhost:9091/metrics : biocybe_watcher_*, biocybe_nk_actions_total,
+#   biocybe_netmon_iocs_loaded, biocybe_memory_* (observabilité runtime complète)
 # → chaque connexion vers un IOC connu : alerte NotifierManager + audit log immuable
 # → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
 # → activable aussi via config : netmon.enabled: true

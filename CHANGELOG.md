@@ -5,6 +5,51 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Observabilité : endpoint Prometheus du daemon (runtime watcher/NK/netmon)
+
+Le process API exposait déjà `/metrics`, mais le **daemon** (watcher
+temps-réel, network monitor, cellule NK) tourne dans un process séparé
+sans serveur HTTP — ses compteurs runtime étaient invisibles. Cette
+itération lui donne son propre endpoint.
+
+#### Nouveau module
+
+- **`biocybe.metrics_daemon.DaemonMetricsServer`** — serveur HTTP
+  Prometheus léger (`prometheus_client.start_http_server`) avec un
+  **collecteur custom** qui lit l'état live au scrape (pas de double
+  comptabilité — les compteurs des composants sont la source de vérité) :
+  - `biocybe_daemon_uptime_seconds`
+  - `biocybe_watcher_{events_scanned,events_skipped,detections,quarantined,memory_suppressed,errors}`
+  - `biocybe_nk_actions_total{outcome}` (executed/dry_run/refused/rate_limited/…)
+  - `biocybe_netmon_iocs_loaded`
+  - `biocybe_memory_indicators_total{verdict}` + `biocybe_memory_disposition_total{disposition}`
+  - Sources injectées via callables (découplé, testable) ; un provider
+    qui lève n'interrompt pas le scrape (les autres métriques passent).
+
+#### Cellule NK
+
+- `NKCell.action_counts` — compteur cumulé par outcome, incrémenté à
+  chaque `_audit` (donc pour toute action : exécutée, dry-run, refusée,
+  rate-limited). Exposé en métrique via le service.
+
+#### Intégration daemon
+
+- `cmd_daemon` construit/démarre le serveur via
+  `_build_daemon_metrics_server` (opt-in `config.metrics.daemon_enabled`
+  ou flag `--metrics-port`), arrêt propre dans le `finally`.
+- `_build_network_monitor_service_from_config` attache la NK cell au
+  service (`service.nk_cell`) pour l'observabilité.
+- Section `metrics` dans `config/biocybe.yaml`
+  (`daemon_enabled`, `daemon_port` défaut 9091).
+
+#### Tests (`tests/test_metrics_daemon.py`, 9 tests)
+
+  - Collecteur : uptime toujours présent, watcher stats, NK actions par
+    outcome, netmon IOCs, mémoire verdict/disposition
+  - Provider en échec → scrape robuste (autres métriques OK)
+  - **Vrai serveur HTTP démarré + scrapé via socket + arrêté**
+  - Wiring : désactivé par défaut, activé via `--metrics-port`
+
 ### Observabilité : métriques Prometheus de la mémoire immunitaire
 
 Complète le volet monitoring. Deux nouvelles Gauges exposées sur

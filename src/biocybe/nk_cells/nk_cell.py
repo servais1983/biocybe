@@ -181,6 +181,8 @@ class NKCell:
         self._audit_fn = audit_fn
         self._hosts_blocker = hosts_blocker
         self._action_times: list[float] = []
+        # Compteurs cumulés par outcome (observabilité — exposé en métriques)
+        self.action_counts: dict[str, int] = {}
         self._lock = threading.Lock()
         self._own_pid = os.getpid()
         try:
@@ -411,6 +413,9 @@ class NKCell:
 
     def _audit(self, decision: NKDecision, *, outcome: str) -> None:
         details = decision.to_dict()
+        # Compteur cumulé par outcome (observabilité)
+        with self._lock:
+            self.action_counts[outcome] = self.action_counts.get(outcome, 0) + 1
         if self._audit_fn is not None:
             try:
                 self._audit_fn(

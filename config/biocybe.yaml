@@ -326,3 +326,10 @@ nk:
 memory:
   enabled: false
   db_path: "db/memory/immune_memory.db"
+
+# Endpoint Prometheus du daemon (observabilite runtime du watcher/NK/netmon)
+# Le process API a deja son /metrics ; ceci expose les metriques du DAEMON
+# (watcher temps-reel, cellule NK, network monitor) sur un port dedie.
+metrics:
+  daemon_enabled: false
+  daemon_port: 9091

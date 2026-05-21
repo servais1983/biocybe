@@ -727,6 +727,8 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
         reverse_dns=reverse_dns,
         on_match=_on_match,
     )
+    # Expose la NK cell sur le service pour l'observabilité (métriques daemon)
+    service.nk_cell = nk_cell
     return service
 
 
@@ -742,6 +744,45 @@ def _build_immune_memory_from_config(config: dict):
     except Exception as exc:
         logger.warning("Mémoire immunitaire indisponible : %s", exc)
         return None
+
+
+def _build_daemon_metrics_server(config: dict, *, cli_args, watcher, netmon_service, immune_memory):
+    """Construit + démarre le serveur /metrics du daemon, ou None si désactivé.
+
+    Activation : config.metrics.daemon_enabled OU flag CLI --metrics-port.
+    Le port CLI est prioritaire sur la config.
+    """
+    metrics_cfg = (config or {}).get("metrics") or {}
+    cli_port = getattr(cli_args, "metrics_port", None)
+    enabled = bool(metrics_cfg.get("daemon_enabled", False)) or cli_port is not None
+    if not enabled:
+        return None
+
+    port = int(cli_port if cli_port is not None else metrics_cfg.get("daemon_port", 9091))
+
+    try:
+        from .metrics_daemon import DaemonMetricsServer
+    except Exception as exc:
+        logger.warning("Métriques daemon indisponibles : %s", exc)
+        return None
+
+    server = DaemonMetricsServer(
+        watcher_stats_fn=(lambda: watcher.stats.to_dict()) if watcher is not None else None,
+        nk_counts_fn=(
+            (lambda: getattr(netmon_service, "nk_cell", None).action_counts)
+            if netmon_service is not None and getattr(netmon_service, "nk_cell", None) is not None
+            else None
+        ),
+        netmon_iocs_fn=(
+            (lambda: netmon_service.ioc_total) if netmon_service is not None else None
+        ),
+        memory_stats_fn=(
+            (lambda: immune_memory.stats()) if immune_memory is not None else None
+        ),
+    )
+    if server.start(port=port):
+        return server
+    return None
 
 
 def _build_nk_cell_from_config(config: dict):
@@ -1808,6 +1849,15 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             netmon_service.ioc_total,
         )
 
+    # ---- Endpoint /metrics du daemon (observabilité runtime) ----
+    metrics_server = _build_daemon_metrics_server(
+        config,
+        cli_args=args,
+        watcher=watcher,
+        netmon_service=netmon_service,
+        immune_memory=immune_memory,
+    )
+
     print(_BANNER)
     print(f"Système démarré à {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Cellules actives : {len(_core.cells)}")
@@ -1830,6 +1880,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             f"Mémoire immunitaire : {immune_memory.stats()['total']} indicateurs connus "
             "(suppression FP + apprentissage)"
         )
+    if metrics_server is not None:
+        print("Métriques Prometheus du daemon exposées (watcher/NK/netmon/mémoire)")
     print("Appuyez sur Ctrl+C pour arrêter le système")
 
     try:
@@ -1854,6 +1906,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     except Exception as exc:
         logger.error("Erreur dans la boucle principale : %s", exc)
     finally:
+        if metrics_server is not None:
+            try:
+                metrics_server.stop()
+            except Exception:
+                pass
         if netmon_service is not None:
             netmon_service.stop()
         if watcher is not None:
@@ -1926,6 +1983,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         dest="netmon_interval",
         help="Intervalle de polling du network monitor en secondes (défaut config ou 5s).",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=None,
+        dest="metrics_port",
+        help="Expose les métriques Prometheus du daemon sur ce port "
+        "(watcher/NK/netmon/mémoire). Sinon utilise metrics.daemon_* de la config.",
     )
 
     subparsers = parser.add_subparsers(dest="command")

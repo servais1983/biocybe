@@ -30,6 +30,7 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/biocybe/intel/feed_age.py` — mesure âge/staleness des feeds (Phase 3.g), CLI `intel age` + gauges Prometheus
 - `deploy/refresh/` — templates refresh auto (systemd .service+.timer, k8s CronJob, crontab) + monitoring
 - `deploy/k8s/biocybe-api.yaml` — déploiement K8s durci (securityContext complet, probes /healthz+/readyz, limites cgroups, NetworkPolicy, Secret)
+- `src/biocybe/metrics_daemon.py` — endpoint Prometheus du daemon (collecteur custom live : watcher/NK/netmon/mémoire), `--metrics-port` ou `config.metrics.daemon_enabled`
 - `src/biocybe/dashboard/{data,app}.py` — dashboard SOC (Phase 2.3.c), couche données testable + UI Dash, `biocybe dashboard serve`
 - `src/biocybe/nk_cells/nk_cell.py` — Cellules NK (réponse active : suspend/terminate/kill + isolation réseau), ULTRA-conservateur (dry-run + protégés + audit), `biocybe nk {respond,resume,status}`
 - `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner + watcher + daemon + dashboard (onglet Mémoire), `biocybe memory {stats,recall,recent,mark,forget}`
