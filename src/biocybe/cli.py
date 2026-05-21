@@ -633,6 +633,83 @@ def _build_notifier_manager_from_config(config: dict):
     return mgr, len(mgr.notifiers)
 
 
+def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_args=None):
+    """Construit un NetworkMonitorService (Phase 3.h) depuis config.netmon.
+
+    Le callback on_match :
+      1. écrit une entrée d'audit immuable (si audit actif)
+      2. émet un Event vers le NotifierManager (si configuré)
+
+    Activation : config.netmon.enabled OU flag CLI --netmon.
+    Retourne le service démarré-able, ou None si désactivé.
+    """
+    netmon_cfg = (config or {}).get("netmon") or {}
+    cli_enabled = bool(getattr(cli_args, "netmon", False))
+    if not netmon_cfg.get("enabled", False) and not cli_enabled:
+        return None
+
+    try:
+        from .network_monitor import NetworkMonitorService
+    except Exception as exc:
+        logger.warning("NetworkMonitor indisponible : %s", exc)
+        return None
+
+    db_path = netmon_cfg.get("db_path", "db/signatures")
+    interval = float(getattr(cli_args, "netmon_interval", None) or netmon_cfg.get("interval", 5.0))
+    reverse_dns = bool(netmon_cfg.get("reverse_dns", False))
+
+    # Importe l'audit + types notify une seule fois
+    from .audit import audit as _audit
+
+    def _on_match(record) -> None:
+        hit = record.hit
+        details = {
+            "pid": record.pid,
+            "process_name": record.process_name,
+            "process_exe": record.process_exe,
+            "remote": record.raddr,
+            "ioc_type": hit.ioc_type if hit else None,
+            "ioc_value": hit.value if hit else None,
+            "source": hit.source if hit else None,
+            "malware": hit.malware if hit else None,
+            "confidence": hit.confidence if hit else None,
+        }
+        # 1) Audit immuable (no-op si audit non activé)
+        _audit("network_ioc_detected", actor="netmon", outcome="alert", details=details)
+
+        # 2) Notification sortante
+        if notify_mgr is not None:
+            try:
+                from .notify import Event, EventKind, Severity
+
+                conf = hit.confidence if hit else 0
+                sev = Severity.CRITICAL if conf >= 90 else Severity.WARNING
+                notify_mgr.notify(
+                    Event(
+                        kind=EventKind.REALTIME_DETECTION,
+                        severity=sev,
+                        title=f"IOC réseau détecté : {record.process_name} → {record.raddr}",
+                        message=(
+                            f"Le processus {record.process_name} (pid {record.pid}) "
+                            f"contacte {record.raddr}, référencé "
+                            f"{hit.source if hit else '?'} "
+                            f"(malware={hit.malware if hit else '?'}, conf={conf})."
+                        ),
+                        payload=details,
+                    )
+                )
+            except Exception as exc:
+                logger.error("netmon: notify a échoué : %s", exc)
+
+    service = NetworkMonitorService(
+        db_path,
+        interval=interval,
+        reverse_dns=reverse_dns,
+        on_match=_on_match,
+    )
+    return service
+
+
 def cmd_notify_test(args: argparse.Namespace) -> int:
     """Envoie un Event de test à tous les notifiers configurés.
 
@@ -1378,6 +1455,20 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         )
         watcher.start()
 
+    # ---- Network monitor live (Phase 3.h) ----
+    # Surveille les connexions sortantes contre les feeds IOC, alerte via
+    # NotifierManager + audit log. Recharge les IOCs si un cron intel
+    # update a tourné (sans redémarrer le daemon).
+    netmon_service = _build_network_monitor_service_from_config(
+        config, notify_mgr, cli_args=args
+    )
+    if netmon_service is not None:
+        netmon_service.start()
+        logger.info(
+            "Network monitor actif : %d IOCs chargés, surveillance des connexions sortantes",
+            netmon_service.ioc_total,
+        )
+
     print(_BANNER)
     print(f"Système démarré à {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Cellules actives : {len(_core.cells)}")
@@ -1390,20 +1481,37 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         else:
             rt_mode = "ALERT-ONLY"
         print(f"Watcher temps-réel : {len(watch_dirs)} dossier(s), mode {rt_mode}")
+    if netmon_service is not None:
+        print(
+            f"Network monitor : {netmon_service.ioc_total} IOCs, "
+            "surveillance des connexions sortantes"
+        )
     print("Appuyez sur Ctrl+C pour arrêter le système")
 
     try:
         interval = config.get("core", {}).get("state_save_interval", 300)
+        # Recharge les feeds IOC toutes les 5 min (peu coûteux : compare
+        # un fingerprint des last_update.txt, ne relit que si changé).
+        netmon_reload_interval = 300
         last_save = time.time()
+        last_netmon_reload = time.time()
         while _running:
             now = time.time()
             if now - last_save >= interval:
                 _core.save_status()
                 last_save = now
+            if netmon_service is not None and now - last_netmon_reload >= netmon_reload_interval:
+                try:
+                    netmon_service.maybe_reload()
+                except Exception as exc:
+                    logger.error("netmon reload a échoué : %s", exc)
+                last_netmon_reload = now
             time.sleep(1)
     except Exception as exc:
         logger.error("Erreur dans la boucle principale : %s", exc)
     finally:
+        if netmon_service is not None:
+            netmon_service.stop()
         if watcher is not None:
             watcher.stop()
         if _core and _core.active:
@@ -1455,6 +1563,20 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="watch_dry_run",
         help="Mode évaluation pour le watcher : détecte sans quarantine. "
         "Combine avec --watch-quarantine pour simuler.",
+    )
+    parser.add_argument(
+        "--netmon",
+        action="store_true",
+        dest="netmon",
+        help="Active la surveillance live des connexions sortantes (Phase 3.h). "
+        "Sinon utilise netmon.enabled de la config.",
+    )
+    parser.add_argument(
+        "--netmon-interval",
+        type=float,
+        default=None,
+        dest="netmon_interval",
+        help="Intervalle de polling du network monitor en secondes (défaut config ou 5s).",
     )
 
     subparsers = parser.add_subparsers(dest="command")

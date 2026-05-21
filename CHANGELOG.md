@@ -5,6 +5,60 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Phase 3.h : daemon unifié — surveillance réseau live intégrée
+
+Unifie les briques réseau (3.e/3.f), threat intel (3.d/3.g) et
+notifications (2.3.b) dans le runtime live du daemon. Jusqu'ici le
+`NetworkMonitor` n'était accessible qu'en one-shot (`netmon scan`) ou
+en commande dédiée (`netmon watch`). Désormais le daemon principal le
+fait tourner en continu, câblé aux notifications et à l'audit.
+
+#### Nouveau : `NetworkMonitorService`
+
+`biocybe.network_monitor.NetworkMonitorService` — wrapper daemon-friendly :
+
+  - bundle `NetworkMonitor` + `IOCLookup` + callback `on_match`
+  - **rechargement auto des feeds** : `maybe_reload()` compare un
+    fingerprint SHA-256 des `last_update.txt` de chaque feed et ne
+    relit le disque que si un `intel update` (cron Phase 3.g) a tourné.
+    Comme `IOCLookup.reload()` mute l'instance en place, le monitor voit
+    les nouveaux IOCs **sans redémarrage du daemon**.
+  - `start()` / `stop()` / `ioc_total`
+
+#### Intégration daemon
+
+  - `cmd_daemon` construit et démarre le service via
+    `_build_network_monitor_service_from_config(config, notify_mgr)`
+  - Le callback `on_match` fait deux choses pour chaque connexion vers
+    un IOC connu :
+    1. **audit immuable** : entrée `network_ioc_detected` (PID, process,
+       remote, malware, confidence, source) dans la chaîne SHA-256
+    2. **notification sortante** : `Event(REALTIME_DETECTION)` vers le
+       NotifierManager. Sévérité `critical` si confidence ≥ 90, sinon
+       `warning`
+  - La boucle principale appelle `maybe_reload()` toutes les 5 min
+  - Arrêt propre du service dans le `finally` (avant `core.stop()`)
+
+#### Activation
+
+  - Flag CLI : `biocybe --netmon [--netmon-interval N]`
+  - Config : section `netmon` dans `config/biocybe.yaml`
+    (`enabled`, `interval`, `reverse_dns`, `db_path`)
+  - Combinable : `biocybe --watch /tmp --watch-quarantine --netmon`
+    = stack complète live (fichiers + réseau + quarantaine + alertes +
+    audit)
+
+#### Tests (`tests/test_network_monitor_service.py`, 9 tests)
+
+  - `NetworkMonitorService` : construction, `ioc_total`, `maybe_reload`
+    no-op quand inchangé / reload quand `last_update.txt` change, le
+    monitor voit les nouveaux IOCs après reload (snapshot)
+  - Wiring : désactivé par défaut, activé via config OU flag CLI,
+    intervalle CLI prioritaire
+  - `on_match` : écrit l'audit `network_ioc_detected` (vérifié dans la
+    chaîne) ET notifie ; sévérité critical (conf≥90) vs warning (conf<90)
+  - Smoke test réel validé : flags parsés, service start/stop propre
+
 ### Phase 2.3.c : dashboard SOC (Dash) — UI de triage en lecture seule
 
 Première interface visuelle de BioCybe. Console de triage pour un

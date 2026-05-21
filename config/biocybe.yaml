@@ -295,3 +295,13 @@ research:
     auto_generate: true
     output_path: "docs/"
     format: "markdown"
+
+# Surveillance live des connexions sortantes (Phase 3.h)
+# Croise les connexions reseau actives avec les feeds IOC (URLhaus +
+# ThreatFox + MalwareBazaar). Alerte via notify + audit log. Recharge
+# automatiquement les IOCs apres un `intel update` (cron Phase 3.g).
+netmon:
+  enabled: false              # true OU flag CLI --netmon pour activer
+  interval: 5                 # polling en secondes (1-5 recommande)
+  reverse_dns: false          # resolution PTR des IPs (lent, enrichit)
+  db_path: "db/signatures"    # racine des feeds IOC

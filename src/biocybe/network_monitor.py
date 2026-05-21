@@ -277,6 +277,91 @@ class NetworkMonitor:
 
 
 # ----------------------------------------------------------------------
+# NetworkMonitorService — bundle daemon-friendly (Phase 3.h)
+# ----------------------------------------------------------------------
+
+
+class NetworkMonitorService:
+    """Encapsule un `NetworkMonitor` + rechargement auto de l'`IOCLookup`.
+
+    Pensé pour le daemon BioCybe (Phase 3.h) : surveillance live des
+    connexions sortantes, avec rechargement transparent des feeds quand
+    un `intel update` (cron Phase 3.g) a écrit de nouveaux IOCs — sans
+    redémarrer le daemon.
+
+    Le rechargement se base sur un fingerprint des `last_update.txt` de
+    chaque feed. `maybe_reload()` est appelé périodiquement par la boucle
+    du daemon ; il ne recharge que si le fingerprint a changé (pas de
+    relecture disque inutile à chaque tick).
+
+    Comme `IOCLookup.reload()` mute l'instance en place, le `NetworkMonitor`
+    qui détient une référence au même objet voit immédiatement les
+    nouveaux IOCs — pas besoin de recréer le monitor.
+    """
+
+    def __init__(
+        self,
+        db_path: str | Path = "db/signatures",
+        *,
+        interval: float = DEFAULT_INTERVAL_S,
+        reverse_dns: bool = False,
+        on_match: Callable[[ConnectionRecord], None] | None = None,
+        lookup: IOCLookup | None = None,
+    ):
+        self.db_path = Path(db_path)
+        self.lookup = lookup or IOCLookup.from_db(db_path)
+        self.monitor = NetworkMonitor(
+            self.lookup,
+            interval=interval,
+            reverse_dns=reverse_dns,
+            on_match=on_match,
+        )
+        self._feed_fingerprint = self._compute_feed_fingerprint()
+
+    def _compute_feed_fingerprint(self) -> str:
+        """Hash des `last_update.txt` de tous les feeds connus.
+
+        Change dès qu'un feed est rafraîchi → déclenche un reload.
+        """
+        import hashlib
+
+        parts: list[str] = []
+        for subdir in ("hashes", "urlhaus", "threatfox"):
+            f = self.db_path / subdir / "last_update.txt"
+            try:
+                parts.append(f"{subdir}:{f.read_text(encoding='utf-8').strip()}")
+            except OSError:
+                parts.append(f"{subdir}:absent")
+        joined = "|".join(parts)
+        return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+    def maybe_reload(self) -> bool:
+        """Recharge l'IOCLookup si les feeds ont changé. Retourne True si reload."""
+        fp = self._compute_feed_fingerprint()
+        if fp != self._feed_fingerprint:
+            old_total = self.lookup.total
+            self.lookup.reload()  # mute en place → le monitor voit les nouveaux IOCs
+            self._feed_fingerprint = fp
+            logger.info(
+                "NetworkMonitorService : IOCs rechargés (%d -> %d)",
+                old_total,
+                self.lookup.total,
+            )
+            return True
+        return False
+
+    def start(self) -> None:
+        self.monitor.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self.monitor.stop(timeout=timeout)
+
+    @property
+    def ioc_total(self) -> int:
+        return self.lookup.total
+
+
+# ----------------------------------------------------------------------
 # HostsBlocker — sinkhole DNS via fichier hosts
 # ----------------------------------------------------------------------
 
@@ -594,4 +679,5 @@ __all__ = [
     "HostsBlocker",
     "HostsBlockerStats",
     "NetworkMonitor",
+    "NetworkMonitorService",
 ]

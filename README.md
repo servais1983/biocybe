@@ -177,6 +177,13 @@ biocybe dashboard serve --host 0.0.0.0 --port 8050 --refresh-seconds 30
 # --- Daemon avec real-time monitoring ---
 biocybe --watch /var/log --watch /tmp                      # alert-only
 biocybe --watch /var/log --watch-quarantine                # auto-quarantine
+
+# --- Daemon + surveillance réseau live (Phase 3.h) ---
+biocybe --netmon                                           # connexions sortantes vs IOCs
+biocybe --watch /tmp --watch-quarantine --netmon           # full stack live
+# → chaque connexion vers un IOC connu : alerte NotifierManager + audit log immuable
+# → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
+# → activable aussi via config : netmon.enabled: true
 biocybe --watch /var/log --watch-quarantine --watch-dry-run  # simulation
 ```
 
