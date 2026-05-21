@@ -63,6 +63,21 @@ RUN biocybe --help > /dev/null && biocybe scan --help > /dev/null
 # ---------- Stage 2: runtime ----------
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
+# Métadonnées OCI : provenance, corrélation SBOM, traçabilité supply-chain.
+# Remplies dynamiquement au build via --build-arg si besoin (CI).
+ARG BIOCYBE_VERSION=0.2
+ARG BUILD_DATE
+ARG VCS_REF
+LABEL org.opencontainers.image.title="BioCybe" \
+      org.opencontainers.image.description="Système de cyberdéfense bio-inspiré, modulaire et explicable" \
+      org.opencontainers.image.url="https://github.com/servais1983/biocybe" \
+      org.opencontainers.image.source="https://github.com/servais1983/biocybe" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="BioCybe" \
+      org.opencontainers.image.version="${BIOCYBE_VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/biocybe/bin:$PATH" \

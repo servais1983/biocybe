@@ -139,12 +139,24 @@ jobs:
           push: false
           load: true        # rend l'image dispo dans le daemon local pour `docker run`
           tags: biocybe:ci-${{ github.sha }}
+          # Labels OCI : provenance / corrélation SBOM
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Inspect image
         run: |
           docker image ls biocybe:ci-${{ github.sha }}
           docker inspect biocybe:ci-${{ github.sha }} --format '{{ .Config.Entrypoint }} {{ .Config.Cmd }}'
+      - name: Vérifier les labels OCI + user non-root
+        run: |
+          src=$(docker inspect biocybe:ci-${{ github.sha }} --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')
+          echo "image.source = $src"
+          test "$src" = "https://github.com/servais1983/biocybe"
+          user=$(docker inspect biocybe:ci-${{ github.sha }} --format '{{ .Config.User }}')
+          echo "user = $user"
+          test "$user" = "biocybe"
       - name: Smoke test image — biocybe --help
         run: docker run --rm biocybe:ci-${{ github.sha }} --help
       - name: Smoke test image — biocybe scan --help

@@ -5,6 +5,41 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Durcissement déploiement : Kubernetes + labels OCI
+
+Consolide le déploiement production. Le `docker-compose.yml` était déjà
+durci (read_only, tmpfs, no-new-privileges, cap_drop ALL, limites) ;
+cette itération ajoute le pendant Kubernetes et la provenance d'image.
+
+#### Manifestes Kubernetes (`deploy/k8s/`)
+
+- **`biocybe-api.yaml`** — déploiement production-ready de l'API REST :
+  Deployment (2 replicas) + Service ClusterIP + 2 PVC + NetworkPolicy.
+  Durcissement defense-in-depth :
+  - `runAsNonRoot` + uid/gid 10001, `fsGroup`, `seccompProfile: RuntimeDefault`
+  - `readOnlyRootFilesystem: true` (writes uniquement sur volumes + tmpfs
+    mémoire pour `/tmp`)
+  - `capabilities.drop: [ALL]`, `allowPrivilegeEscalation: false`
+  - `automountServiceAccountToken: false`
+  - **limites cgroups** CPU/mémoire (un agent de sécu ne doit jamais OOM
+    le nœud)
+  - probes **liveness `/healthz`** (redémarre si mort) + **readiness
+    `/readyz`** (Phase 3.c, 4 checks réels, retire du LB sans tuer) +
+    startupProbe
+  - token API via Secret (jamais en clair), clé quarantaine optionnelle
+  - **NetworkPolicy** : `/metrics` + API joignables seulement par
+    ingress + namespace monitoring
+- **`README.md`** — guide de déploiement, tableau des mesures de
+  durcissement, explication des deux probes.
+
+#### Labels OCI (Dockerfile)
+
+Métadonnées de provenance pour la corrélation SBOM et la traçabilité
+supply-chain : `org.opencontainers.image.{title,description,source,
+licenses,version,created,revision}`. `BUILD_DATE` et `VCS_REF` injectés
+au build CI. Vérification CI ajoutée : `image.source` correct + user
+non-root (`biocybe`).
+
 ### CI : job de validation E2E du pipeline threat intel
 
 Ajoute un job `pipeline-validation` au workflow GitHub Actions, qui

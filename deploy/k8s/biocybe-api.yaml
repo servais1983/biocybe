@@ -1,0 +1,206 @@
+# BioCybe — déploiement Kubernetes durci de l'API REST.
+#
+# Inclut : Deployment + Service + Secret (token) + PVC (signatures
+# partagées avec le CronJob de refresh intel, cf. deploy/refresh/).
+#
+# Durcissement appliqué (defense in depth) :
+#   - runAsNonRoot + uid/gid 10001 (= user de l'image)
+#   - readOnlyRootFilesystem (writes uniquement sur volumes/emptyDir)
+#   - drop ALL capabilities, allowPrivilegeEscalation: false
+#   - seccompProfile RuntimeDefault
+#   - limites CPU/mémoire (cgroups) — un agent de sécu ne doit jamais OOM le nœud
+#   - probes liveness (/healthz) + readiness (/readyz, Phase 3.c)
+#   - token API via Secret, jamais en clair dans le manifeste
+#
+# Déploiement :
+#   kubectl create secret generic biocybe-api \
+#     --from-literal=api-token="$(openssl rand -hex 32)"
+#   kubectl apply -f biocybe-api.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: biocybe-signatures
+  labels:
+    app.kubernetes.io/name: biocybe
+spec:
+  accessModes: ["ReadWriteMany"] # RWX pour partage avec le CronJob refresh
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: biocybe-quarantine
+  labels:
+    app.kubernetes.io/name: biocybe
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: biocybe-api
+  labels:
+    app.kubernetes.io/name: biocybe
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: biocybe
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: biocybe
+        app.kubernetes.io/component: api
+    spec:
+      # Durcissement au niveau pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          # Build avec --build-arg BIOCYBE_EXTRAS=web pour Flask + waitress
+          image: ghcr.io/servais1983/biocybe:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - api
+            - serve
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: BIOCYBE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: biocybe-api
+                  key: api-token
+            # Clé de chiffrement quarantaine (Phase 2.4.b) — optionnelle
+            - name: BIOCYBE_QUARANTINE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: biocybe-api
+                  key: quarantine-key
+                  optional: true
+          # Durcissement au niveau conteneur
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Limites cgroups : pas d'OOM du nœud, QoS Burstable
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          # Liveness : le process répond-il ? (pas d'auth sur /healthz)
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness : peut-on router du trafic ? (Phase 3.c, 4 checks réels)
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Startup : laisse le temps au 1er chargement (cache YARA déjà
+          # précompilé dans l'image, donc rapide)
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          volumeMounts:
+            - name: signatures
+              mountPath: /home/biocybe/db/signatures
+            - name: quarantine
+              mountPath: /home/biocybe/quarantine
+            - name: logs
+              mountPath: /home/biocybe/logs
+            # readOnlyRootFilesystem=true → /tmp doit être un volume inscriptible
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: signatures
+          persistentVolumeClaim:
+            claimName: biocybe-signatures
+        - name: quarantine
+          persistentVolumeClaim:
+            claimName: biocybe-quarantine
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: biocybe-api
+  labels:
+    app.kubernetes.io/name: biocybe
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: biocybe
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# NetworkPolicy : restreint le trafic entrant à l'ingress + Prometheus.
+# /metrics et l'API ne doivent pas être joignables par n'importe quel pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: biocybe-api
+  labels:
+    app.kubernetes.io/name: biocybe
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: biocybe
+      app.kubernetes.io/component: api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        # Adapter les labels à votre ingress-controller / namespace Prometheus
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
