@@ -5,6 +5,39 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Validation end-to-end du pipeline threat intel (Phases 3.d → 3.h)
+
+Nouveau `scripts/validate_intel_pipeline.py` — harnais de validation
+**réelle** (principe BioCybe : jamais de mode démo) qui exerce toute la
+chaîne threat intel avec de vrais composants, 0 mock de la logique
+métier. 35 vérifications en 8 étapes :
+
+  1. **Feeds** — écrit MalwareBazaar + URLhaus + ThreatFox au format
+     EXACT des updaters
+  2. **IOCLookup** — lookups hash/ip(+port)/hostname/url, parent-domain
+     fallback, `lookup_auto` typé, **0 faux positif** sur IP bénigne
+  3. **feed_age** — feeds frais détectés frais, feeds vieillis de 5j
+     détectés stale
+  4. **NetworkSentinel** — IP+URL+hash détectés dans un script, fichier
+     bénin non flaggé
+  5. **NetworkMonitor** — **vraie connexion socket sortante** vers
+     `1.1.1.1:443` (ajoutée au feed), réellement observée par
+     `psutil.net_connections` et matchée. SKIP explicite si offline
+     (jamais masqué en faux PASS)
+  6. **NetworkMonitorService** — `on_match` écrit l'audit immuable
+     `network_ioc_detected` (chaîne SHA-256 **vérifiée intègre**) +
+     émet la notification (sévérité critical pour conf 100)
+  7. **maybe_reload** — ajout d'un IOC + bump timestamp → rechargé, le
+     monitor voit le nouvel IOC ; no-op si inchangé
+  8. **DashboardData** — reflète l'état audit + intel, action
+     `network_ioc_detected` visible
+
+IOCs de test réservés par la RFC uniquement (IPs RFC 5737
+`203.0.113.0/24` etc., domaines RFC 2606 `.test`). Le workdir temporaire
+est nettoyé en fin de run. Exécution validée : **35 PASS, 0 FAIL,
+0 SKIP** (la vraie connexion réseau a fonctionné). Script clean au lint
+ruff.
+
 ### Phase 3.h : daemon unifié — surveillance réseau live intégrée
 
 Unifie les briques réseau (3.e/3.f), threat intel (3.d/3.g) et

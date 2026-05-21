@@ -211,6 +211,14 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
   - `validate_cache_speedup.py` — mesure cold/warm startup daemon avec
     les 748 community rules. Critère : warm < 10s (mesure réelle x1626
     speedup grâce au cache `compiled.yarc` ajouté en Phase 3.a).
+  - `validate_intel_pipeline.py` — valide le pipeline threat intel
+    complet (Phases 3.d→3.h) end-to-end : feeds → IOCLookup → feed_age
+    → NetworkSentinel → NetworkMonitor (**vraie connexion socket vers
+    1.1.1.1:443 observée par psutil**) → NetworkMonitorService on_match
+    (audit immuable + notify) → maybe_reload → DashboardData. IOCs de
+    test RFC 5737/2606 uniquement. 35 vérifications, 0 mock de logique
+    métier. Critère PASS : 0 FAIL (SKIP toléré sur l'étape réseau si
+    offline, jamais masqué).
 
 ## 7. Pièges connus / dette technique
 
