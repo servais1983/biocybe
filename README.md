@@ -188,6 +188,15 @@ biocybe --watch /tmp --netmon --metrics-port 9091          # + endpoint Promethe
 # → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
 # → activable aussi via config : netmon.enabled: true
 
+# --- Auto-régénération : restauration anti-ransomware (self-healing) ---
+biocybe regen baseline /etc/nginx /var/www/html           # capture l'état sain
+biocybe regen drift                                        # qu'est-ce qui a changé ? (exit 1 si drift)
+biocybe regen heal                                         # dry-run : montre ce qui serait restauré
+biocybe regen heal --execute                               # RESTAURE les fichiers endommagés
+biocybe regen status                                       # état de la baseline
+# → cas ransomware : baseline avant l'attaque, puis `heal --execute` restaure
+#   les fichiers chiffrés depuis le coffre intègre (vérif SHA-256, atomique)
+
 # --- Mémoire immunitaire : apprentissage cross-session ---
 biocybe memory stats                                       # compteurs + top familles
 biocybe memory recall <hash|ip|hostname>                   # ce qu'on sait de cet indicateur
@@ -285,7 +294,14 @@ BioCybe s'inspire du système immunitaire pour créer une défense en profondeur
 - Suppression des faux positifs confirmés par analyste (réduction du bruit SOC)
 - Base de connaissances forensique : first/last_seen, times_seen, famille par indicateur
 
-### 6. Autres modules inspirés de la nature
+### 6. Auto-régénération / Self-healing (Régénération tissulaire) ✅
+- **Capacité phare** : après élimination du pathogène, le tissu se régénère
+- Baseline d'intégrité des fichiers critiques (hash SHA-256 + coffre dédupliqué)
+- Détection de drift (modifié / supprimé) puis **restauration depuis la baseline**
+- **Anti-ransomware** : restaure les fichiers chiffrés depuis le coffre intègre
+- Garde-fous : dry-run par défaut, vérification d'intégrité avant écriture, atomicité, audit
+
+### 7. Autres modules inspirés de la nature
 - **Algorithmes de colonies de fourmis** pour la détection collaborative
 - **Systèmes épigénétiques** pour l'adaptation aux environnements spécifiques
 - **Simulateurs coévolutifs** pour l'entraînement défensif

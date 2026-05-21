@@ -1210,6 +1210,98 @@ def _guess_indicator_type(value: str) -> str:
     return "family"
 
 
+def _make_healer(args):
+    from .regeneration import SelfHealer
+
+    return SelfHealer(vault_dir=args.vault, manifest_path=args.manifest)
+
+
+def cmd_regen_baseline(args: argparse.Namespace) -> int:
+    """Capture l'état sain de fichiers/dossiers critiques."""
+    healer = _make_healer(args)
+    stats = healer.baseline(args.paths, recursive=not args.no_recursive)
+    if args.json:
+        print(json.dumps({
+            "captured": stats.captured,
+            "total_bytes": stats.total_bytes,
+            "skipped_too_big": stats.skipped_too_big,
+            "errors": stats.errors,
+        }, indent=2, ensure_ascii=False))
+    else:
+        print(f"Baseline capturee : {stats.captured} fichiers ({stats.total_bytes} octets)")
+        if stats.skipped_too_big:
+            print(f"  Ignores (trop gros) : {len(stats.skipped_too_big)}")
+        if stats.errors:
+            print(f"  Erreurs : {len(stats.errors)}")
+        print(f"  Coffre : {healer.vault_dir}")
+    return 0
+
+
+def cmd_regen_drift(args: argparse.Namespace) -> int:
+    """Détecte les fichiers modifiés/supprimés vs la baseline."""
+    healer = _make_healer(args)
+    summary = healer.drift_summary()
+    if args.json:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    else:
+        print(f"Baseline : {summary['baseline_total']} fichiers")
+        print(f"  Intacts   : {summary['intact']}")
+        print(f"  Modifies  : {summary['modified']}")
+        print(f"  Supprimes : {summary['deleted']}")
+        if summary["items"]:
+            print("  Detail :")
+            for it in summary["items"][:50]:
+                print(f"    [{it['status']:8}] {it['path']}")
+    # Exit 1 si drift detecte (utilisable en healthcheck/cron)
+    return 1 if summary["drift_total"] else 0
+
+
+def cmd_regen_heal(args: argparse.Namespace) -> int:
+    """Restaure les fichiers en drift (dry-run par défaut)."""
+    from .regeneration import HealAction
+
+    healer = _make_healer(args)
+    results = healer.heal(dry_run=not args.execute, only_paths=args.only_paths)
+    restored = [r for r in results if r.action == HealAction.RESTORED]
+    would = [r for r in results if r.action == HealAction.WOULD_RESTORE]
+    failed = [r for r in results if r.action == HealAction.FAILED]
+
+    if args.json:
+        print(json.dumps([r.to_dict() for r in results], indent=2, ensure_ascii=False))
+    else:
+        if not results:
+            print("Aucun drift : rien a restaurer.")
+            return 0
+        if args.execute:
+            print(f"Regeneration : {len(restored)} fichier(s) restaure(s), {len(failed)} echec(s)")
+            for r in restored:
+                print(f"  [RESTAURE] {r.path} (etait {r.status_before.value})")
+            for r in failed:
+                print(f"  [ECHEC]    {r.path} : {r.error}")
+        else:
+            print(f"[DRY-RUN] {len(would)} fichier(s) seraient restaures :")
+            for r in would:
+                print(f"  [{r.status_before.value:8}] {r.path}")
+            print("\nAjoute --execute pour restaurer reellement.")
+    return 1 if failed else 0
+
+
+def cmd_regen_status(args: argparse.Namespace) -> int:
+    healer = _make_healer(args)
+    info = healer.stats()
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+    else:
+        print("Auto-regeneration — baseline")
+        print(f"  Fichiers proteges : {info['baseline_total']}")
+        print(f"  Taille totale     : {info['baseline_total_bytes']} octets")
+        print(f"  Coffre            : {info['vault_dir']}")
+        print(f"  Manifeste         : {info['manifest_path']}")
+        if info["baseline_total"] == 0:
+            print("\nAucune baseline. Cree-en une : biocybe regen baseline <chemins...>")
+    return 0
+
+
 def cmd_memory_stats(args: argparse.Namespace) -> int:
     from .memory import ImmuneMemory
 
@@ -2400,6 +2492,50 @@ def _build_parser() -> argparse.ArgumentParser:
     block_status.add_argument("--hosts-path", default=None)
     block_status.add_argument("--json", action="store_true")
 
+    # ---------------- regen (Auto-régénération / self-healing) ---------------
+    regen_p = subparsers.add_parser(
+        "regen",
+        help="Auto-regeneration : restaure les fichiers endommages depuis une baseline",
+    )
+    regen_sub = regen_p.add_subparsers(dest="regen_command", required=True)
+
+    DEFAULT_VAULT = "db/regeneration/vault"
+    DEFAULT_BASELINE = "db/regeneration/baseline.json"
+
+    regen_base = regen_sub.add_parser(
+        "baseline", help="Capture l'etat sain de fichiers/dossiers critiques"
+    )
+    regen_base.add_argument("paths", nargs="+", help="Fichiers ou dossiers a proteger")
+    regen_base.add_argument("--no-recursive", action="store_true")
+    regen_base.add_argument("--vault", default=DEFAULT_VAULT)
+    regen_base.add_argument("--manifest", default=DEFAULT_BASELINE)
+    regen_base.add_argument("--json", action="store_true")
+
+    regen_drift = regen_sub.add_parser(
+        "drift", help="Detecte les fichiers modifies/supprimes vs la baseline"
+    )
+    regen_drift.add_argument("--vault", default=DEFAULT_VAULT)
+    regen_drift.add_argument("--manifest", default=DEFAULT_BASELINE)
+    regen_drift.add_argument("--json", action="store_true")
+
+    regen_heal = regen_sub.add_parser(
+        "heal", help="Restaure les fichiers en drift (dry-run par defaut)"
+    )
+    regen_heal.add_argument(
+        "--execute", action="store_true", help="Restaure REELLEMENT (sinon dry-run)"
+    )
+    regen_heal.add_argument(
+        "--path", action="append", dest="only_paths", help="Limiter a ce(s) chemin(s)"
+    )
+    regen_heal.add_argument("--vault", default=DEFAULT_VAULT)
+    regen_heal.add_argument("--manifest", default=DEFAULT_BASELINE)
+    regen_heal.add_argument("--json", action="store_true")
+
+    regen_status = regen_sub.add_parser("status", help="Etat de la baseline")
+    regen_status.add_argument("--vault", default=DEFAULT_VAULT)
+    regen_status.add_argument("--manifest", default=DEFAULT_BASELINE)
+    regen_status.add_argument("--json", action="store_true")
+
     # ---------------- memory (Mémoire immunitaire persistante) ---------------
     mem_p = subparsers.add_parser(
         "memory",
@@ -2614,6 +2750,15 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_stats(args)
         if args.intel_command == "age":
             return cmd_intel_age(args)
+    if args.command == "regen":
+        if args.regen_command == "baseline":
+            return cmd_regen_baseline(args)
+        if args.regen_command == "drift":
+            return cmd_regen_drift(args)
+        if args.regen_command == "heal":
+            return cmd_regen_heal(args)
+        if args.regen_command == "status":
+            return cmd_regen_status(args)
     if args.command == "memory":
         if args.memory_command == "stats":
             return cmd_memory_stats(args)

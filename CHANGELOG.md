@@ -5,6 +5,58 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Auto-régénération (self-healing) — capacité phare anti-ransomware
+
+LA capacité la plus innovante, jusqu'ici manquante. BioCybe savait
+**retirer** la menace (quarantaine, NK) mais pas **réparer les dégâts**.
+Analogie biologique complète : après élimination du pathogène, le tissu
+se **régénère** vers son état sain. Cas d'usage tueur : **ransomware**.
+
+#### Nouveau module `biocybe.regeneration.SelfHealer`
+
+Trois phases (FIM + remédiation automatique) :
+
+1. **Baseline** — capture l'état sain de fichiers/dossiers critiques :
+   hash SHA-256 + copie du contenu dans un **coffre dédupliqué**
+   (`db/regeneration/vault/`, shardé par préfixe de hash). Manifeste
+   JSON avec path/sha256/size/mtime/permissions. Cap taille par fichier
+   (100 Mo défaut).
+2. **Détection de drift** — compare l'état courant à la baseline :
+   `intact` / `modified` (chiffrement ransomware, tampering) / `deleted`.
+3. **Heal** — restaure les fichiers en drift depuis le coffre.
+
+GARDE-FOUS (mêmes principes que la cellule NK) :
+  - **dry-run par défaut** : `heal()` décrit sans agir
+  - **vérification d'intégrité** : le contenu restauré est re-hashé et
+    comparé à la baseline AVANT de remplacer (un coffre corrompu →
+    restauration refusée, le fichier endommagé n'est pas écrasé par du
+    contenu invalide)
+  - **écriture atomique** : tempfile + os.replace, jamais de fichier à
+    moitié restauré
+  - **cap** restaurations/run (10 000 défaut, anti-emballement)
+  - **audit systématique** : baseline + chaque heal journalisés
+  - permissions d'origine restaurées (best-effort)
+
+#### CLI
+
+  - `biocybe regen baseline <paths...> [--no-recursive]` — capture l'état sain
+  - `biocybe regen drift` — détecte les écarts (exit 1 si drift, healthcheck-friendly)
+  - `biocybe regen heal [--execute] [--path P]` — restaure (dry-run sans `--execute`)
+  - `biocybe regen status` — état de la baseline
+
+#### Tests (`tests/test_regeneration.py`, 15 tests)
+
+  - Baseline : capture, cap taille, persistance cross-instance
+  - Drift : intact / modifié / supprimé
+  - Heal : dry-run ne touche rien, restaure modifié + supprimé, filtre
+    `only_paths`, cap par run, **intégrité bloque un coffre corrompu**
+  - **Scénario ransomware end-to-end** : 3 fichiers chiffrés → drift
+    détecté → restauration complète → 0 drift résiduel
+  - CLI : cycle complet baseline→drift→heal dry-run→heal execute
+
+Smoke test réel validé : baseline 3 fichiers → "ransomware LockBit"
+chiffre tout → drift=3 → `heal --execute` → 3 restaurés → drift résiduel 0.
+
 ### Observabilité : endpoint Prometheus du daemon (runtime watcher/NK/netmon)
 
 Le process API exposait déjà `/metrics`, mais le **daemon** (watcher
