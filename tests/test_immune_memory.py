@@ -32,8 +32,14 @@ def test_remember_creates_record(tmp_path):
     from biocybe.memory import VERDICT_MALICIOUS, ImmuneMemory
 
     mem = ImmuneMemory(tmp_path / "m.db")
-    rec = mem.remember(SHA, indicator_type="sha256", verdict=VERDICT_MALICIOUS,
-                       confidence=80, family="Emotet", source="scanner")
+    rec = mem.remember(
+        SHA,
+        indicator_type="sha256",
+        verdict=VERDICT_MALICIOUS,
+        confidence=80,
+        family="Emotet",
+        source="scanner",
+    )
     assert rec.times_seen == 1
     assert rec.verdict == VERDICT_MALICIOUS
     assert rec.family == "Emotet"
@@ -140,8 +146,12 @@ def test_stats_and_queries(tmp_path):
     from biocybe.memory import VERDICT_BENIGN, VERDICT_MALICIOUS, ImmuneMemory
 
     mem = ImmuneMemory(tmp_path / "m.db")
-    mem.remember("h1" + "0" * 62, indicator_type="sha256", verdict=VERDICT_MALICIOUS, family="Emotet")
-    mem.remember("h2" + "0" * 62, indicator_type="sha256", verdict=VERDICT_MALICIOUS, family="Emotet")
+    mem.remember(
+        "h1" + "0" * 62, indicator_type="sha256", verdict=VERDICT_MALICIOUS, family="Emotet"
+    )
+    mem.remember(
+        "h2" + "0" * 62, indicator_type="sha256", verdict=VERDICT_MALICIOUS, family="Emotet"
+    )
     mem.remember("h3" + "0" * 62, indicator_type="sha256", verdict=VERDICT_BENIGN)
     # h2 vu plusieurs fois
     for _ in range(5):

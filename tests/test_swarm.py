@@ -21,8 +21,9 @@ def _seed_malicious(mem, n=3, *, confirmed=False):
 
     for i in range(n):
         ind = f"{i:064x}"
-        mem.remember(ind, indicator_type="sha256", verdict=VERDICT_MALICIOUS,
-                     confidence=95, family="Emotet")
+        mem.remember(
+            ind, indicator_type="sha256", verdict=VERDICT_MALICIOUS, confidence=95, family="Emotet"
+        )
         if confirmed:
             mem.set_disposition(ind, "sha256", "confirmed_malicious")
 
@@ -181,8 +182,13 @@ def test_tampered_bundle_rejected(tmp_path):
     bundle = SwarmSync(mem_a, node_id="node-a", swarm_key="key").export_bundle()
     # Falsification : on injecte un indicateur sans recalculer le HMAC
     bundle["indicators"].append(
-        {"indicator": "f" * 64, "indicator_type": "sha256", "verdict": "malicious",
-         "confidence": 100, "family": "Injecté"}
+        {
+            "indicator": "f" * 64,
+            "indicator_type": "sha256",
+            "verdict": "malicious",
+            "confidence": 100,
+            "family": "Injecté",
+        }
     )
 
     mem_b = _mem(tmp_path, "b.db")
@@ -236,8 +242,9 @@ def test_import_dir_aggregates(tmp_path):
         m = _mem(tmp_path, f"{node}.db")
         from biocybe.memory import VERDICT_MALICIOUS
 
-        m.remember(f"{node}" * 32, indicator_type="sha256", verdict=VERDICT_MALICIOUS,
-                   confidence=95)
+        m.remember(
+            f"{node}" * 32, indicator_type="sha256", verdict=VERDICT_MALICIOUS, confidence=95
+        )
         SwarmSync(m, node_id=f"node-{node}").write_bundle(shared / f"{node}.json")
         m.close()
 
@@ -258,8 +265,13 @@ def test_cli_swarm_full_cycle(tmp_path, monkeypatch, capsys):
     from biocybe.memory import VERDICT_MALICIOUS, ImmuneMemory
 
     ma = ImmuneMemory(db_a)
-    ma.remember("a" * 64, indicator_type="sha256", verdict=VERDICT_MALICIOUS, confidence=95,
-                family="LockBit")
+    ma.remember(
+        "a" * 64,
+        indicator_type="sha256",
+        verdict=VERDICT_MALICIOUS,
+        confidence=95,
+        family="LockBit",
+    )
     ma.close()
 
     # export

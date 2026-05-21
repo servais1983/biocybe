@@ -225,8 +225,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
         a = data.audit_summary()
         if not a["exists"]:
             return dbc.Alert(
-                "Aucun audit log trouvé. Active-le dans config/biocybe.yaml "
-                "(audit.enabled: true).",
+                "Aucun audit log trouvé. Active-le dans config/biocybe.yaml (audit.enabled: true).",
                 color="secondary",
             )
         chain_banner = (
@@ -257,9 +256,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
                 color="secondary",
             )
         elif i["any_stale"]:
-            banner = dbc.Alert(
-                "Au moins un feed est stale — relance le refresh.", color="warning"
-            )
+            banner = dbc.Alert("Au moins un feed est stale — relance le refresh.", color="warning")
         else:
             banner = dbc.Alert("Tous les feeds sont frais ✓", color="success")
 
@@ -305,9 +302,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
                     md=4,
                 ),
                 dbc.Col(
-                    dcc.Graph(
-                        figure=_bar(dict(m["top_families"]), "Top familles", "#ab47bc")
-                    ),
+                    dcc.Graph(figure=_bar(dict(m["top_families"]), "Top familles", "#ab47bc")),
                     md=4,
                 ),
             ]

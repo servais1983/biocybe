@@ -229,8 +229,7 @@ def test_import_dashboard_without_dash_does_not_crash():
 # ----------------------------------------------------------------------
 
 _HAS_DASH = all(
-    importlib.util.find_spec(m) is not None
-    for m in ("dash", "plotly", "dash_bootstrap_components")
+    importlib.util.find_spec(m) is not None for m in ("dash", "plotly", "dash_bootstrap_components")
 )
 
 

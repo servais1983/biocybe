@@ -350,8 +350,7 @@ class NKCell:
             and current_name.lower() != decision.process_name.lower()
         ):
             decision.refused_reason = (
-                f"PID recyclé : attendu '{decision.process_name}', "
-                f"trouvé '{current_name}' — refus"
+                f"PID recyclé : attendu '{decision.process_name}', trouvé '{current_name}' — refus"
             )
             raise RuntimeError(decision.refused_reason)
 
@@ -418,9 +417,7 @@ class NKCell:
             self.action_counts[outcome] = self.action_counts.get(outcome, 0) + 1
         if self._audit_fn is not None:
             try:
-                self._audit_fn(
-                    "nk_response", actor="nk_cell", outcome=outcome, details=details
-                )
+                self._audit_fn("nk_response", actor="nk_cell", outcome=outcome, details=details)
                 return
             except Exception as exc:
                 logger.error("[NK] audit_fn a échoué : %s", exc)

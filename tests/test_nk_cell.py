@@ -286,9 +286,7 @@ def test_cli_nk_respond_protected_returns_1(monkeypatch, capsys):
     fake_proc = MagicMock()
     fake_proc.name.return_value = "lsass.exe"
     with patch("psutil.Process", return_value=fake_proc):
-        exit_code = main(
-            ["nk", "respond", "--pid", "999", "--execute", "--confidence", "100"]
-        )
+        exit_code = main(["nk", "respond", "--pid", "999", "--execute", "--confidence", "100"])
     assert exit_code == 1
     out = capsys.readouterr().out.lower()
     # "Refusee" + "lsass.exe" : le process protégé n'a pas été touché

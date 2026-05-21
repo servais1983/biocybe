@@ -152,8 +152,7 @@ class SwarmSync:
         if not self.swarm_key:
             if provided:
                 logger.warning(
-                    "Swarm : bundle signé mais aucune clé locale (%s) — "
-                    "signature non vérifiée",
+                    "Swarm : bundle signé mais aucune clé locale (%s) — signature non vérifiée",
                     SWARM_KEY_ENV,
                 )
             return True  # mode dev : pas de clé = pas de vérif
@@ -223,11 +222,11 @@ class SwarmSync:
         # (immunité collective renforcée) — sauf si déjà disposé localement.
         if item.get("disposition") == DISPOSITION_CONFIRMED_MALICIOUS:
             rec = self.memory.recall(indicator, itype)
-            if rec is not None and rec.disposition not in (
-                DISPOSITION_CONFIRMED_MALICIOUS,
-            ):
+            if rec is not None and rec.disposition not in (DISPOSITION_CONFIRMED_MALICIOUS,):
                 self.memory.set_disposition(
-                    indicator, itype, DISPOSITION_CONFIRMED_MALICIOUS,
+                    indicator,
+                    itype,
+                    DISPOSITION_CONFIRMED_MALICIOUS,
                     notes=f"confirmé par swarm:{origin}",
                 )
         if existed:

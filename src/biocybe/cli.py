@@ -804,12 +804,8 @@ def _build_daemon_metrics_server(config: dict, *, cli_args, watcher, netmon_serv
             if netmon_service is not None and getattr(netmon_service, "nk_cell", None) is not None
             else None
         ),
-        netmon_iocs_fn=(
-            (lambda: netmon_service.ioc_total) if netmon_service is not None else None
-        ),
-        memory_stats_fn=(
-            (lambda: immune_memory.stats()) if immune_memory is not None else None
-        ),
+        netmon_iocs_fn=((lambda: netmon_service.ioc_total) if netmon_service is not None else None),
+        memory_stats_fn=((lambda: immune_memory.stats()) if immune_memory is not None else None),
     )
     if server.start(port=port):
         return server
@@ -1104,8 +1100,7 @@ def cmd_intel_lookup(args: argparse.Namespace) -> int:
     lookup = IOCLookup.from_db(args.db_path)
     if lookup.total == 0:
         print(
-            "Aucun IOC chargé. Lance d'abord :\n"
-            "  biocybe intel update --source all",
+            "Aucun IOC chargé. Lance d'abord :\n  biocybe intel update --source all",
             file=sys.stderr,
         )
         return 2
@@ -1133,7 +1128,9 @@ def cmd_intel_lookup(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        print(json.dumps({"value": args.value, "match": hit.to_dict()}, indent=2, ensure_ascii=False))
+        print(
+            json.dumps({"value": args.value, "match": hit.to_dict()}, indent=2, ensure_ascii=False)
+        )
     else:
         print(f"MATCH IOC trouvé : {args.value}")
         print(f"  Type      : {hit.ioc_type}")
@@ -1145,7 +1142,15 @@ def cmd_intel_lookup(args: argparse.Namespace) -> int:
             interesting = {
                 k: v
                 for k, v in hit.metadata.items()
-                if k in ("first_seen", "date_added", "tags", "hostname", "matched_parent_domain", "url_status")
+                if k
+                in (
+                    "first_seen",
+                    "date_added",
+                    "tags",
+                    "hostname",
+                    "matched_parent_domain",
+                    "url_status",
+                )
             }
             if interesting:
                 print("  Metadata  :")
@@ -1180,9 +1185,7 @@ def cmd_intel_age(args: argparse.Namespace) -> int:
             status = "STALE" if f.stale else "fresh"
             if f.error:
                 status = f"ERROR ({f.error})"
-            print(
-                f"  {f.source:<14} {last:<22} {age:<10} {f.ioc_count:>8}  {status}"
-            )
+            print(f"  {f.source:<14} {last:<22} {age:<10} {f.ioc_count:>8}  {status}")
         print("-" * 78)
         if report.all_missing:
             print("Aucun feed recupere. Lance : biocybe intel update --source all")
@@ -1205,8 +1208,13 @@ def cmd_intel_stats(args: argparse.Namespace) -> int:
     total = lookup.total
 
     if args.json:
-        print(json.dumps({"total": total, "by_type": stats, "db_path": str(args.db_path)},
-                         indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"total": total, "by_type": stats, "db_path": str(args.db_path)},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print(f"Index IOC chargé depuis : {args.db_path}")
         print(f"  Total       : {total}")
@@ -1276,8 +1284,9 @@ def cmd_swarm_import(args: argparse.Namespace) -> int:
         print(json.dumps(stats.to_dict(), indent=2, ensure_ascii=False))
     else:
         if stats.signature_failed:
-            print("ATTENTION : au moins un bundle a une signature invalide (rejete).",
-                  file=sys.stderr)
+            print(
+                "ATTENTION : au moins un bundle a une signature invalide (rejete).", file=sys.stderr
+            )
         print(f"Import swarm : {stats.imported} nouveaux, {stats.updated} mis a jour")
         print(f"  FP locaux respectes : {stats.skipped_local_fp}")
         if stats.skipped_own:
@@ -1298,12 +1307,18 @@ def cmd_swarm_status(args: argparse.Namespace) -> int:
     mem.close()
 
     if args.json:
-        print(json.dumps({
-            "node_id": sync.node_id,
-            "shareable_count": len(shareable),
-            "min_confidence": args.min_confidence,
-            "signed": signed,
-        }, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "node_id": sync.node_id,
+                    "shareable_count": len(shareable),
+                    "min_confidence": args.min_confidence,
+                    "signed": signed,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print(f"Noeud swarm      : {sync.node_id}")
         print(f"  Partageables   : {len(shareable)} indicateurs (conf >= {args.min_confidence})")
@@ -1322,12 +1337,18 @@ def cmd_regen_baseline(args: argparse.Namespace) -> int:
     healer = _make_healer(args)
     stats = healer.baseline(args.paths, recursive=not args.no_recursive)
     if args.json:
-        print(json.dumps({
-            "captured": stats.captured,
-            "total_bytes": stats.total_bytes,
-            "skipped_too_big": stats.skipped_too_big,
-            "errors": stats.errors,
-        }, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "captured": stats.captured,
+                    "total_bytes": stats.total_bytes,
+                    "skipped_too_big": stats.skipped_too_big,
+                    "errors": stats.errors,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print(f"Baseline capturee : {stats.captured} fichiers ({stats.total_bytes} octets)")
         if stats.skipped_too_big:
@@ -1491,9 +1512,7 @@ def cmd_memory_mark(args: argparse.Namespace) -> int:
         from .memory import VERDICT_BENIGN, VERDICT_MALICIOUS
 
         verdict = VERDICT_BENIGN if args.disposition == "benign" else VERDICT_MALICIOUS
-        mem.remember(
-            args.indicator, indicator_type=args.type, verdict=verdict, source="analyst"
-        )
+        mem.remember(args.indicator, indicator_type=args.type, verdict=verdict, source="analyst")
     ok = mem.set_disposition(
         args.indicator, args.type, disp_map[args.disposition], notes=args.notes
     )
@@ -1564,8 +1583,7 @@ def cmd_nk_respond(args: argparse.Namespace) -> int:
         if decision.executed:
             print("Resultat   : EXECUTE")
             if decision.action.value == "suspend":
-                print("  -> process gele. Reveiller : biocybe nk resume --pid "
-                      f"{decision.pid}")
+                print(f"  -> process gele. Reveiller : biocybe nk resume --pid {decision.pid}")
         elif decision.dry_run and decision.action.value != "none":
             print("Resultat   : DRY-RUN (rien execute). Ajoute --execute pour agir.")
 
@@ -1639,8 +1657,10 @@ def cmd_nk_status(args: argparse.Namespace) -> int:
         if "pid_test" in info:
             t = info["pid_test"]
             print(f"\n  Test PID {t['pid']} ({t['process_name'] or '?'}) :")
-            print(f"    protege : {t['protected']}"
-                  + (f" ({t['protected_reason']})" if t["protected_reason"] else ""))
+            print(
+                f"    protege : {t['protected']}"
+                + (f" ({t['protected_reason']})" if t["protected_reason"] else "")
+            )
     return 0
 
 
@@ -1686,14 +1706,9 @@ def cmd_dashboard_serve(args: argparse.Namespace) -> int:
 def _format_netmon_record(r) -> str:
     """Formate une ConnectionRecord en ligne lisible CLI."""
     marker = "!! IOC " if r.is_malicious else "   ok  "
-    base = (
-        f"{marker} pid={r.pid or '?':>6} {r.process_name[:24]:<24} "
-        f"-> {r.raddr:<22} [{r.status}]"
-    )
+    base = f"{marker} pid={r.pid or '?':>6} {r.process_name[:24]:<24} -> {r.raddr:<22} [{r.status}]"
     if r.is_malicious and r.hit is not None:
-        base += (
-            f"  | {r.hit.source} malware={r.hit.malware} conf={r.hit.confidence}"
-        )
+        base += f"  | {r.hit.source} malware={r.hit.malware} conf={r.hit.confidence}"
     if r.reverse_dns:
         base += f"  ({r.reverse_dns})"
     return base
@@ -1829,8 +1844,7 @@ def cmd_netmon_block_apply(args: argparse.Namespace) -> int:
         stats = blocker.apply(candidates)
     except PermissionError as exc:
         print(
-            f"Permission denied : {exc}\n"
-            f"  Le fichier {blocker.hosts_path} requiert root/admin.",
+            f"Permission denied : {exc}\n  Le fichier {blocker.hosts_path} requiert root/admin.",
             file=sys.stderr,
         )
         return 3
@@ -2043,8 +2057,10 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         )
         watcher.start()
         rt_mode = (
-            "DRY-RUN" if args.watch_dry_run
-            else "QUARANTINE" if args.watch_quarantine
+            "DRY-RUN"
+            if args.watch_dry_run
+            else "QUARANTINE"
+            if args.watch_quarantine
             else "ALERT-ONLY"
         )
         # Signal "ready" explicite : la protection est opérationnelle MAINTENANT,
@@ -2061,9 +2077,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         )
 
     # Network monitor live (Phase 3.h) — dépend de notify_mgr (déjà construit)
-    netmon_service = _build_network_monitor_service_from_config(
-        config, notify_mgr, cli_args=args
-    )
+    netmon_service = _build_network_monitor_service_from_config(config, notify_mgr, cli_args=args)
     if netmon_service is not None:
         netmon_service.start()
         logger.info(
@@ -2654,7 +2668,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     swarm_export.add_argument("output", help="Fichier de sortie (JSON)")
     swarm_export.add_argument("--db-path", default=DEFAULT_MEM)
-    swarm_export.add_argument("--node-id", default=None, help="Identifiant du noeud (defaut hostname)")
+    swarm_export.add_argument(
+        "--node-id", default=None, help="Identifiant du noeud (defaut hostname)"
+    )
     swarm_export.add_argument(
         "--min-confidence", type=int, default=80, help="Confiance min a partager (defaut 80)"
     )
@@ -2667,9 +2683,7 @@ def _build_parser() -> argparse.ArgumentParser:
     swarm_import.add_argument("--node-id", default=None)
     swarm_import.add_argument("--json", action="store_true")
 
-    swarm_status = swarm_sub.add_parser(
-        "status", help="Combien d'indicateurs seraient partages ?"
-    )
+    swarm_status = swarm_sub.add_parser("status", help="Combien d'indicateurs seraient partages ?")
     swarm_status.add_argument("--db-path", default=DEFAULT_MEM)
     swarm_status.add_argument("--min-confidence", type=int, default=80)
     swarm_status.add_argument("--json", action="store_true")
@@ -2818,9 +2832,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dash_serve = dash_sub.add_parser("serve", help="Lance le dashboard web")
     dash_serve.add_argument("--host", default="127.0.0.1", help="Bind host (defaut 127.0.0.1)")
     dash_serve.add_argument("--port", type=int, default=8050, help="Port (defaut 8050)")
-    dash_serve.add_argument(
-        "--quarantine-dir", default="quarantine", help="Dossier quarantaine"
-    )
+    dash_serve.add_argument("--quarantine-dir", default="quarantine", help="Dossier quarantaine")
     dash_serve.add_argument(
         "--audit-path", default="logs/audit.jsonl", help="Chemin de l'audit log"
     )

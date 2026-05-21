@@ -299,10 +299,15 @@ def test_cli_regen_full_cycle(tmp_path, monkeypatch, capsys):
 def test_cli_regen_status_empty(tmp_path, capsys):
     from biocybe.cli import main
 
-    rc = main([
-        "regen", "status",
-        "--vault", str(tmp_path / "v"),
-        "--manifest", str(tmp_path / "b.json"),
-    ])
+    rc = main(
+        [
+            "regen",
+            "status",
+            "--vault",
+            str(tmp_path / "v"),
+            "--manifest",
+            str(tmp_path / "b.json"),
+        ]
+    )
     assert rc == 0
     assert "Aucune baseline" in capsys.readouterr().out

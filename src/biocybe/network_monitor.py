@@ -214,9 +214,7 @@ class NetworkMonitor:
             logger.warning("NetworkMonitor.start() : deja en cours")
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._loop, name="biocybe-netmon", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="biocybe-netmon", daemon=True)
         self._thread.start()
         logger.info("NetworkMonitor demarre (intervalle %.1fs)", self.interval)
 
@@ -450,9 +448,7 @@ class HostsBlocker:
         """Retire la section BioCybe. Retourne le nombre d'entrées retirées."""
         existing = self._read_existing()
         before, in_section, after = _split_by_markers(existing)
-        removed = sum(
-            1 for line in in_section if line.strip() and not line.strip().startswith("#")
-        )
+        removed = sum(1 for line in in_section if line.strip() and not line.strip().startswith("#"))
         new_content = "".join(before) + "".join(after)
         if removed:
             self._backup_if_needed()
@@ -506,9 +502,7 @@ class HostsBlocker:
             return "".join(before) + "".join(after)
         block: list[str] = []
         block.append(BIOCYBE_HOSTS_MARKER_START + "\n")
-        block.append(
-            f"# Genere par BioCybe le {datetime.now().isoformat(timespec='seconds')}\n"
-        )
+        block.append(f"# Genere par BioCybe le {datetime.now().isoformat(timespec='seconds')}\n")
         block.append(f"# {len(hostnames)} hostnames sinkholes vers {SINKHOLE_IP}\n")
         for h in hostnames:
             block.append(f"{SINKHOLE_IP}\t{h}\n")
@@ -534,9 +528,7 @@ class HostsBlocker:
         """Écrit le fichier hosts de façon atomique (tempfile + replace)."""
         dst = self.hosts_path
         dst.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            prefix=".biocybe-hosts-", dir=str(dst.parent)
-        )
+        fd, tmp_path = tempfile.mkstemp(prefix=".biocybe-hosts-", dir=str(dst.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
                 f.write(content)

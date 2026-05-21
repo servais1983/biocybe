@@ -300,9 +300,7 @@ class SelfHealer:
         for key, entry in self._entries.items():
             p = Path(key)
             if not p.exists():
-                drift.append(
-                    DriftItem(key, DriftStatus.DELETED, entry.sha256, None)
-                )
+                drift.append(DriftItem(key, DriftStatus.DELETED, entry.sha256, None))
                 continue
             cur = _sha256_file(p)
             if cur is None:
@@ -359,9 +357,7 @@ class SelfHealer:
             if entry is None:
                 continue
             if dry_run:
-                results.append(
-                    HealResult(item.path, HealAction.WOULD_RESTORE, item.status, True)
-                )
+                results.append(HealResult(item.path, HealAction.WOULD_RESTORE, item.status, True))
                 continue
             res = self._restore_one(entry, item.status)
             results.append(res)
@@ -384,7 +380,10 @@ class SelfHealer:
         vault = self._vault_path(entry.sha256)
         if not vault.exists():
             return HealResult(
-                entry.path, HealAction.FAILED, status_before, False,
+                entry.path,
+                HealAction.FAILED,
+                status_before,
+                False,
                 error="contenu absent du coffre",
             )
         target = Path(entry.path)
@@ -399,7 +398,10 @@ class SelfHealer:
             if restored_hash != entry.sha256:
                 os.unlink(tmp)
                 return HealResult(
-                    entry.path, HealAction.FAILED, status_before, False,
+                    entry.path,
+                    HealAction.FAILED,
+                    status_before,
+                    False,
                     error=f"intégrité KO (vault corrompu ? {restored_hash} != {entry.sha256})",
                 )
             os.replace(tmp, target)

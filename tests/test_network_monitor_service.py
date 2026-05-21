@@ -115,9 +115,7 @@ def test_monitor_uses_reloaded_lookup_in_snapshot(tmp_path):
 
     fake = [_fake_conn("203.0.113.5", 8080)]
     with patch("psutil.net_connections", return_value=fake):
-        with patch(
-            "biocybe.network_monitor._safe_process_info", return_value=("x.exe", "")
-        ):
+        with patch("biocybe.network_monitor._safe_process_info", return_value=("x.exe", "")):
             records = svc.monitor.snapshot()
     malicious = [r for r in records if r.is_malicious]
     assert len(malicious) == 1
@@ -169,7 +167,13 @@ def test_on_match_writes_audit_and_notifies(tmp_path):
 
     _seed_feed(
         tmp_path,
-        {"203.0.113.9:443": {"malware": "Emotet", "confidence": 95, "source": "abuse.ch/ThreatFox"}},
+        {
+            "203.0.113.9:443": {
+                "malware": "Emotet",
+                "confidence": 95,
+                "source": "abuse.ch/ThreatFox",
+            }
+        },
     )
 
     # Installe un audit log réel dans tmp

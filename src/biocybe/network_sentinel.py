@@ -186,9 +186,7 @@ class NetworkSentinel:
         self.hostname_denylist = hostname_denylist
 
     @classmethod
-    def from_db(
-        cls, db_path: str | Path = "db/signatures", **kwargs
-    ) -> NetworkSentinel:
+    def from_db(cls, db_path: str | Path = "db/signatures", **kwargs) -> NetworkSentinel:
         return cls(IOCLookup.from_db(db_path), **kwargs)
 
     # ------------------------------------------------------------------
@@ -231,9 +229,7 @@ class NetworkSentinel:
 
         return self.scan_text(text, result)
 
-    def scan_text(
-        self, text: str, result: NetworkScanResult | None = None
-    ) -> NetworkScanResult:
+    def scan_text(self, text: str, result: NetworkScanResult | None = None) -> NetworkScanResult:
         """Scanne un blob texte. Réutilisable indépendamment de `scan_file`."""
         if result is None:
             result = NetworkScanResult(path=Path("<text>"))

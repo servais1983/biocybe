@@ -194,8 +194,7 @@ def scan_path(
         sentinel = NetworkSentinel.from_db(db_path)
         if sentinel.lookup.total == 0:
             logger.warning(
-                "Network scan demandé mais aucun IOC chargé. "
-                "Lance d'abord : biocybe intel update"
+                "Network scan demandé mais aucun IOC chargé. Lance d'abord : biocybe intel update"
             )
 
     verdicts: list[FileVerdict] = []
@@ -237,8 +236,7 @@ def scan_path(
                 ]
                 if verdict.network and verdict.network.is_malicious:
                     reason_parts += [
-                        f"ioc:{h.ioc_type}:{h.value[:60]}"
-                        for h in verdict.network.iocs_found[:3]
+                        f"ioc:{h.ioc_type}:{h.value[:60]}" for h in verdict.network.iocs_found[:3]
                     ]
                 reason = ", ".join(reason_parts) or "malicious"
                 try:

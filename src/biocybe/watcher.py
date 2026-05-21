@@ -449,8 +449,11 @@ class FileSystemWatcher:
                 title="Ransomware suspecté : modification de masse de fichiers protégés",
                 message=f"{window_count} fichiers baselinés modifiés en "
                 f"{self.regen_burst_window:.0f}s. "
-                + ("Régénération automatique déclenchée." if self.regen_auto_heal
-                   else "Lancez `biocybe regen heal --execute` pour restaurer."),
+                + (
+                    "Régénération automatique déclenchée."
+                    if self.regen_auto_heal
+                    else "Lancez `biocybe regen heal --execute` pour restaurer."
+                ),
                 payload={"window_count": window_count, "auto_heal": self.regen_auto_heal},
             )
         except Exception:

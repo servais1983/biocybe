@@ -160,9 +160,7 @@ class DaemonMetricsServer:
         self._registry = CollectorRegistry()
         self._registry.register(self.build_collector())
         try:
-            self._httpd, _thread = start_http_server(
-                port, addr=addr, registry=self._registry
-            )
+            self._httpd, _thread = start_http_server(port, addr=addr, registry=self._registry)
         except OSError as exc:
             logger.error("Impossible de démarrer /metrics daemon sur %s:%d : %s", addr, port, exc)
             return False

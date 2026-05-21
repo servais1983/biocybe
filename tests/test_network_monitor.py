@@ -178,9 +178,7 @@ def test_on_match_callback_invoked(tmp_path):
     lookup = IOCLookup.from_db(tmp_path)
 
     captured = []
-    monitor = NetworkMonitor(
-        lookup, interval=0.5, on_match=lambda r: captured.append(r)
-    )
+    monitor = NetworkMonitor(lookup, interval=0.5, on_match=lambda r: captured.append(r))
 
     fake_conns = [_fake_conn("10.20.30.40", 8080)]
     with patch("psutil.net_connections", return_value=fake_conns):
@@ -300,7 +298,9 @@ def test_hosts_blocker_rejects_invalid(tmp_path):
     assert "valid-host.test" in stats.blocked
     assert len(stats.skipped_invalid) >= 5
     content = hosts.read_text(encoding="utf-8")
-    assert "localhost" not in [line.split()[-1] for line in content.splitlines() if line.startswith("0.0.0.0")]
+    assert "localhost" not in [
+        line.split()[-1] for line in content.splitlines() if line.startswith("0.0.0.0")
+    ]
 
 
 def test_hosts_blocker_backup_created(tmp_path):

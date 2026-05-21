@@ -11,9 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-_HAS_WEB = all(
-    importlib.util.find_spec(m) is not None for m in ("flask", "prometheus_client")
-)
+_HAS_WEB = all(importlib.util.find_spec(m) is not None for m in ("flask", "prometheus_client"))
 pytestmark = pytest.mark.skipif(not _HAS_WEB, reason="extra [web] non installé")
 
 

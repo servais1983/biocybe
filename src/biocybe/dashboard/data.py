@@ -148,9 +148,7 @@ class DashboardData:
             by_action[e.action] += 1
             by_outcome[e.outcome] += 1
 
-        recent = sorted(entries, key=lambda e: e.seq, reverse=True)[
-            : self.config.recent_limit
-        ]
+        recent = sorted(entries, key=lambda e: e.seq, reverse=True)[: self.config.recent_limit]
         table = [
             {
                 "seq": e.seq,

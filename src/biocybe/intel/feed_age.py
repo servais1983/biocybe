@@ -76,9 +76,7 @@ class FeedAge:
             "label": self.label,
             "path": str(self.path),
             "last_update": self.last_update.isoformat() if self.last_update else None,
-            "age_seconds": (
-                round(self.age_seconds, 2) if self.age_seconds is not None else None
-            ),
+            "age_seconds": (round(self.age_seconds, 2) if self.age_seconds is not None else None),
             "age_human": _human_age(self.age_seconds),
             "ioc_count": self.ioc_count,
             "stale": self.stale,
@@ -166,9 +164,7 @@ def read_feed_ages(
                 feed.age_seconds = max(0.0, (now - ts).total_seconds())
             except (OSError, ValueError) as exc:
                 feed.error = f"unreadable_timestamp: {exc}"
-                logger.warning(
-                    "feed_age : %s a un last_update.txt invalide : %s", source, exc
-                )
+                logger.warning("feed_age : %s a un last_update.txt invalide : %s", source, exc)
 
         feed.ioc_count = _count_iocs_for(fdir, source)
         report.feeds.append(feed)
