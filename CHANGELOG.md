@@ -5,6 +5,23 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### CI : job de validation E2E du pipeline threat intel
+
+Ajoute un job `pipeline-validation` au workflow GitHub Actions, qui
+exécute `scripts/validate_intel_pipeline.py` (35 vérifications réelles,
+Phases 3.d→3.h) à chaque push/PR. Protège tout le pipeline threat intel
+contre les régressions futures : feeds → IOCLookup → feed_age →
+NetworkSentinel → NetworkMonitor (vraie connexion socket) →
+NetworkMonitorService (audit + notify) → maybe_reload → DashboardData.
+
+  - `needs: [test]` — ne tourne qu'après la matrice de tests unitaires
+  - Installe YARA système + le package core (`pip install -e .`) ; les
+    imports critiques (notify, dashboard.data) marchent en core, pas
+    besoin des extras
+  - Le script gère le SKIP gracieux si pas de réseau (étape connexion
+    socket) ; les runners GitHub ayant un accès sortant, la connexion
+    réelle vers 1.1.1.1:443 passe normalement — jamais de faux PASS
+
 ### Mémoire immunitaire : intégration daemon + watcher + dashboard
 
 Boucle la mémoire immunitaire dans le runtime live (elle n'était câblée
