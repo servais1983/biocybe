@@ -93,6 +93,9 @@ biocybe_intel_feed_age_seconds{source="urlhaus"}       3500
 biocybe_intel_feed_age_seconds{source="threatfox"}     3600
 biocybe_intel_feed_iocs_total{source="threatfox"}      18742
 biocybe_intel_feed_stale{source="urlhaus"}             0      # 1=stale, -1=jamais récupéré
+# Mémoire immunitaire (réduction de bruit + base de connaissances)
+biocybe_memory_indicators_total{verdict="malicious"}   42
+biocybe_memory_disposition_total{disposition="confirmed_benign"} 5   # faux positifs supprimés
 ```
 
 Règle d'alerte Alertmanager suggérée :

@@ -903,6 +903,8 @@ def cmd_api_serve(args: argparse.Namespace) -> int:
         require_auth=not args.no_auth,
         cors_origins=args.cors_origin or None,
         quarantine_dir=args.quarantine_dir,
+        signatures_db_path=args.db_path,
+        memory_db_path=args.memory_db_path,
         workers=args.workers,
         metrics_enabled=not args.no_metrics,
     )
@@ -2229,6 +2231,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--quarantine-dir",
         default="quarantine",
         help="Dossier de quarantaine que l'API gère",
+    )
+    api_serve.add_argument(
+        "--db-path",
+        default="db/signatures",
+        help="Dossier des feeds threat intel (métriques feed age)",
+    )
+    api_serve.add_argument(
+        "--memory-db-path",
+        default="db/memory/immune_memory.db",
+        help="Chemin de la mémoire immunitaire (métriques mémoire)",
     )
     api_serve.add_argument(
         "--workers",

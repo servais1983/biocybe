@@ -5,6 +5,33 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Observabilité : métriques Prometheus de la mémoire immunitaire
+
+Complète le volet monitoring. Deux nouvelles Gauges exposées sur
+`/metrics`, peuplées au scrape par lecture légère de la DB SQLite (même
+pattern robuste que `feed_age` en Phase 3.g — DB absente = gauges
+inchangées, jamais d'erreur sur `/metrics`) :
+
+    biocybe_memory_indicators_total{verdict="malicious"}   42
+    biocybe_memory_indicators_total{verdict="benign"}       7
+    biocybe_memory_disposition_total{disposition="confirmed_benign"} 5   # = FP supprimés
+    biocybe_memory_disposition_total{disposition="unreviewed"}      44
+
+Permet de mesurer dans Grafana l'efficacité de la **réduction de bruit**
+(courbe des faux positifs supprimés) et la croissance de la base de
+connaissances. Exemple de query : `biocybe_memory_disposition_total
+{disposition="confirmed_benign"}` pour suivre les FP éliminés.
+
+- `APIConfig.memory_db_path` (défaut `db/memory/immune_memory.db`)
+- CLI : `biocybe api serve --memory-db-path ... --db-path ...` pour
+  override (les défauts matchent le layout standard, donc out-of-the-box)
+
+#### Tests (`tests/test_memory_metrics.py`, 2 tests)
+
+  - Gauges exposées avec les bonnes valeurs (`malicious=2`,
+    `confirmed_benign=1`)
+  - DB mémoire absente → `/metrics` reste fonctionnel (200)
+
 ### Durcissement déploiement : Kubernetes + labels OCI
 
 Consolide le déploiement production. Le `docker-compose.yml` était déjà

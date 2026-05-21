@@ -67,6 +67,8 @@ class APIConfig:
     signatures_db_path: str = "db/signatures"
     # Seuil staleness des feeds (secondes) pour /readyz + gauge stale
     feed_stale_threshold_s: int = 48 * 3600
+    # Mémoire immunitaire (métriques scrape-time)
+    memory_db_path: str = "db/memory/immune_memory.db"
     # Workers WSGI (waitress/gunicorn)
     workers: int = 4
     # Activer l'endpoint /metrics (Prometheus)
@@ -148,6 +150,20 @@ class _Metrics:
                 "biocybe_intel_feed_stale",
                 "1 si le feed est stale (au-dela du seuil), 0 sinon. -1 si jamais recupere.",
                 ["source"],
+                registry=self.registry,
+            )
+            # Mémoire immunitaire (apprentissage cross-session)
+            self.memory_indicators = Gauge(
+                "biocybe_memory_indicators_total",
+                "Nombre d'indicateurs en memoire immunitaire, par verdict.",
+                ["verdict"],
+                registry=self.registry,
+            )
+            self.memory_disposition = Gauge(
+                "biocybe_memory_disposition_total",
+                "Indicateurs par disposition analyste "
+                "(confirmed_benign = faux positifs supprimes).",
+                ["disposition"],
                 registry=self.registry,
             )
             self.enabled = True
@@ -241,6 +257,34 @@ def _refresh_feed_age_gauges(m: _Metrics, cfg: APIConfig) -> None:
             m.intel_feed_iocs.labels(source=label).set(feed.ioc_count)
     except Exception as exc:  # pragma: no cover - défense
         logger.debug("refresh feed age gauges: %s", exc)
+
+
+def _refresh_memory_gauges(m: _Metrics, cfg: APIConfig) -> None:
+    """Met à jour les gauges mémoire immunitaire au scrape /metrics.
+
+    Lecture légère de la DB SQLite (COUNT GROUP BY). Robuste : DB absente
+    ou illisible → gauges inchangées, jamais d'erreur sur /metrics.
+    """
+    if not m.enabled:
+        return
+    try:
+        from pathlib import Path as _Path
+
+        if not _Path(cfg.memory_db_path).exists():
+            return
+        from ..memory import ImmuneMemory
+
+        mem = ImmuneMemory(cfg.memory_db_path)
+        try:
+            stats = mem.stats()
+        finally:
+            mem.close()
+        for verdict, n in stats.get("by_verdict", {}).items():
+            m.memory_indicators.labels(verdict=verdict).set(n)
+        for disposition, n in stats.get("by_disposition", {}).items():
+            m.memory_disposition.labels(disposition=disposition).set(n)
+    except Exception as exc:  # pragma: no cover - défense
+        logger.debug("refresh memory gauges: %s", exc)
 
 
 def _verdict_to_json(v) -> dict[str, Any]:
@@ -614,6 +658,8 @@ def _register_routes(app: Flask) -> None:
         # Phase 3.g : rafraîchit les gauges feed age au moment du scrape
         # (peu coûteux : lit quelques last_update.txt + compte des clés JSON).
         _refresh_feed_age_gauges(m, cfg)
+        # Métriques mémoire immunitaire (lecture SQLite légère).
+        _refresh_memory_gauges(m, cfg)
 
         # Utilise le registry dédié à cette instance d'app (pas global)
         return generate_latest(m.registry), 200, {"Content-Type": CONTENT_TYPE_LATEST}
