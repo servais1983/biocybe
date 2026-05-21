@@ -5,6 +5,47 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Mémoire immunitaire : intégration daemon + watcher + dashboard
+
+Boucle la mémoire immunitaire dans le runtime live (elle n'était câblée
+qu'au scan one-shot). Désormais la réponse secondaire et la suppression
+des faux positifs opèrent en continu.
+
+#### Watcher temps-réel
+
+- `FileSystemWatcher(..., memory=ImmuneMemory(...))` : chaque détection
+  RT est croisée avec la mémoire par SHA-256.
+  - Faux positif confirmé → détection **étouffée** (pas d'alerte, pas de
+    quarantaine), compteur `WatcherStats.memory_suppressed`.
+  - Vraie détection → mémorisée (`watcher:realtime`) pour renforcer les
+    futures réponses.
+
+#### Daemon
+
+- `cmd_daemon` construit la mémoire via `_build_immune_memory_from_config`
+  (opt-in `config.memory.enabled`), la passe au watcher, l'affiche au
+  démarrage, la ferme proprement à l'arrêt.
+- Nouvelle section `memory` dans `config/biocybe.yaml`.
+
+#### Dashboard SOC — onglet « Mémoire »
+
+- `DashboardData.memory_summary()` : total, répartition verdict/
+  disposition, top familles, indicateurs les plus vus.
+- Nouvel onglet Dash : bannière (total + FP supprimés), charts verdict/
+  disposition/familles, table triable des indicateurs récurrents.
+- Ajouté au `snapshot()` complet.
+
+#### Tests (`tests/test_memory_integration.py`, 9 tests)
+
+  - Watcher : `_apply_memory` supprime un FP / apprend une détection ;
+    `_process` end-to-end (FP confirmé → `memory_suppressed=1`,
+    `detections=0`) ; sans mémoire, comportement inchangé
+  - Dashboard : `memory_summary` présent/absent, inclus dans snapshot
+  - Daemon wiring : `_build_immune_memory_from_config` désactivé/activé
+
+Smoke test réel : onglet Mémoire du dashboard rend les vraies données
+(familles, FP supprimés).
+
 ### Mémoire immunitaire persistante — apprentissage cross-session
 
 Dernier grand pilier bio-inspiré annoncé et non codé. Reproduit la

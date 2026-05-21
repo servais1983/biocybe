@@ -30,6 +30,7 @@ class DashboardConfig:
     quarantine_dir: str = "quarantine"
     audit_path: str = "logs/audit.jsonl"
     signatures_db_path: str = "db/signatures"
+    memory_db_path: str = "db/memory/immune_memory.db"
     # Combien d'entrées récentes afficher dans les tables
     recent_limit: int = 200
     # Seuil staleness des feeds (s) — repris de la Phase 3.g
@@ -219,6 +220,64 @@ class DashboardData:
         }
 
     # ------------------------------------------------------------------
+    # Mémoire immunitaire
+    # ------------------------------------------------------------------
+
+    def memory_summary(self) -> dict[str, Any]:
+        """Agrège la mémoire immunitaire (apprentissage cross-session)."""
+        from pathlib import Path as _Path
+
+        if not _Path(self.config.memory_db_path).exists():
+            return {
+                "exists": False,
+                "total": 0,
+                "by_verdict": {},
+                "by_disposition": {},
+                "top_families": [],
+                "table": [],
+            }
+        try:
+            from ..memory import ImmuneMemory
+
+            mem = ImmuneMemory(self.config.memory_db_path)
+            stats = mem.stats()
+            families = mem.top_families(10)
+            recent = mem.most_seen(self.config.recent_limit)
+            mem.close()
+        except Exception as exc:
+            logger.warning("dashboard: mémoire illisible: %s", exc)
+            return {
+                "exists": True,
+                "total": 0,
+                "by_verdict": {},
+                "by_disposition": {},
+                "top_families": [],
+                "table": [],
+            }
+
+        table = [
+            {
+                "indicator": r.indicator[:60],
+                "type": r.indicator_type,
+                "verdict": r.verdict,
+                "family": r.family or "—",
+                "times_seen": r.times_seen,
+                "confidence": r.confidence,
+                "disposition": r.disposition,
+                "last_seen": r.last_seen,
+            }
+            for r in recent
+        ]
+        return {
+            "exists": True,
+            "total": stats["total"],
+            "by_verdict": stats["by_verdict"],
+            "by_disposition": stats["by_disposition"],
+            "top_families": families,
+            "table": table,
+        }
+
+    # ------------------------------------------------------------------
     # KPIs d'overview
     # ------------------------------------------------------------------
 
@@ -252,6 +311,7 @@ class DashboardData:
             "quarantine": self.quarantine_summary(),
             "audit": self.audit_summary(),
             "intel": self.intel_summary(),
+            "memory": self.memory_summary(),
         }
 
 

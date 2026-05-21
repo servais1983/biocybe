@@ -213,7 +213,7 @@ def test_snapshot_full(tmp_path):
     data = DashboardData(_config(tmp_path))
     snap = data.snapshot()
 
-    assert set(snap.keys()) == {"overview", "quarantine", "audit", "intel"}
+    assert set(snap.keys()) == {"overview", "quarantine", "audit", "intel", "memory"}
     # Sérialisable JSON (important pour export/SIEM)
     json.dumps(snap)
 

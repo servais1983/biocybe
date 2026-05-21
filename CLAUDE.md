@@ -31,7 +31,7 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `deploy/refresh/` — templates refresh auto (systemd .service+.timer, k8s CronJob, crontab) + monitoring
 - `src/biocybe/dashboard/{data,app}.py` — dashboard SOC (Phase 2.3.c), couche données testable + UI Dash, `biocybe dashboard serve`
 - `src/biocybe/nk_cells/nk_cell.py` — Cellules NK (réponse active : suspend/terminate/kill + isolation réseau), ULTRA-conservateur (dry-run + protégés + audit), `biocybe nk {respond,resume,status}`
-- `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner, `biocybe memory {stats,recall,recent,mark,forget}`
+- `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner + watcher + daemon + dashboard (onglet Mémoire), `biocybe memory {stats,recall,recent,mark,forget}`
 - `src/biocybe/intel/rules.py` — import opt-in règles YARA communautaires
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique

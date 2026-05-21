@@ -117,6 +117,8 @@ class WatcherStats:
     detections: int = 0
     quarantined: int = 0
     errors: int = 0
+    # Détections étouffées car faux positif confirmé en mémoire immunitaire
+    memory_suppressed: int = 0
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -127,6 +129,7 @@ class WatcherStats:
             "detections": self.detections,
             "quarantined": self.quarantined,
             "errors": self.errors,
+            "memory_suppressed": self.memory_suppressed,
             "uptime_seconds": time.time() - self.started_at,
         }
 
@@ -186,11 +189,14 @@ class FileSystemWatcher:
         debounce_seconds: float = 0.3,
         excluded_dirs: frozenset[str] = DEFAULT_WATCH_EXCLUDED_DIRS,
         excluded_suffixes: frozenset[str] = DEFAULT_EXCLUDED_SUFFIXES,
+        memory=None,
     ):
         self.directories = [Path(d).resolve() for d in directories]
         self.cell = cell or BCell("realtime_watcher")
         self.quarantine_on_match = quarantine_on_match
         self.dry_run = dry_run
+        # Mémoire immunitaire optionnelle : suppression FP + apprentissage
+        self.memory = memory
         self.recursive = recursive
         self.callback = callback
         self.debounce_seconds = debounce_seconds
@@ -290,6 +296,14 @@ class FileSystemWatcher:
             ev.result = self.cell.scan_file_sync(path)
             self.stats.events_scanned += 1
 
+            # Mémoire immunitaire : suppression FP + apprentissage (réponse 2ndaire)
+            if ev.is_malicious and self.memory is not None:
+                if self._apply_memory(path, ev):
+                    # Faux positif confirmé : on étouffe (pas de detect/quarantine)
+                    self.stats.memory_suppressed += 1
+                    logger.info("[RT-MEMORY] %s supprimé (faux positif confirmé)", path)
+                    return
+
             if ev.is_malicious:
                 self.stats.detections += 1
                 logger.warning(
@@ -357,3 +371,32 @@ class FileSystemWatcher:
                 self.callback(ev)
             except Exception as exc:
                 logger.error("Callback watcher a levé une exception : %s", exc)
+
+    def _apply_memory(self, path: str, ev) -> bool:
+        """Croise une détection RT avec la mémoire immunitaire.
+
+        Retourne True si le fichier est un faux positif confirmé (à
+        étouffer). Sinon mémorise la détection et retourne False.
+        """
+        try:
+            from .scanner import _sha256_of_file
+
+            sha = _sha256_of_file(Path(path))
+            if sha is None:
+                return False
+            rec = self.memory.recall(sha, "sha256")
+            if rec is not None and rec.is_confirmed_benign:
+                return True
+            from .memory import VERDICT_MALICIOUS
+
+            self.memory.remember(
+                sha,
+                indicator_type="sha256",
+                verdict=VERDICT_MALICIOUS,
+                confidence=round(ev.result.confidence * 100),
+                family=ev.result.malware_family,
+                source="watcher:realtime",
+            )
+        except Exception as exc:
+            logger.error("Mémoire immunitaire (watcher %s) : %s", path, exc)
+        return False

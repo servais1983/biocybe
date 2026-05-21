@@ -146,6 +146,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
                     dbc.Tab(label="Quarantaine", tab_id="tab-quarantine"),
                     dbc.Tab(label="Audit", tab_id="tab-audit"),
                     dbc.Tab(label="Threat Intel", tab_id="tab-intel"),
+                    dbc.Tab(label="Mémoire", tab_id="tab-memory"),
                 ],
                 id="tabs",
                 active_tab="tab-quarantine",
@@ -192,6 +193,8 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
             return _render_audit()
         if active_tab == "tab-intel":
             return _render_intel()
+        if active_tab == "tab-memory":
+            return _render_memory()
         return _render_quarantine()
 
     def _render_quarantine():
@@ -279,6 +282,49 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
         )
         cols = ["source", "label", "last_update", "age_human", "ioc_count", "stale"]
         return html.Div([banner, charts, html.H5("Feeds"), _table(i["feeds"], cols)])
+
+    def _render_memory():
+        m = data.memory_summary()
+        if not m["exists"]:
+            return dbc.Alert(
+                "Mémoire immunitaire non initialisée. Active-la dans la config "
+                "(memory.enabled: true) ou via les scans/daemon.",
+                color="secondary",
+            )
+        fp_count = m["by_disposition"].get("confirmed_benign", 0)
+        banner = dbc.Alert(
+            f"{m['total']} indicateurs mémorisés · "
+            f"{fp_count} faux positifs supprimés · réponse secondaire active",
+            color="info",
+        )
+        charts = dbc.Row(
+            [
+                dbc.Col(dcc.Graph(figure=_bar(m["by_verdict"], "Par verdict", "#ef5350")), md=4),
+                dbc.Col(
+                    dcc.Graph(figure=_bar(m["by_disposition"], "Par disposition", "#42a5f5")),
+                    md=4,
+                ),
+                dbc.Col(
+                    dcc.Graph(
+                        figure=_bar(dict(m["top_families"]), "Top familles", "#ab47bc")
+                    ),
+                    md=4,
+                ),
+            ]
+        )
+        cols = [
+            "indicator",
+            "type",
+            "verdict",
+            "family",
+            "times_seen",
+            "confidence",
+            "disposition",
+            "last_seen",
+        ]
+        return html.Div(
+            [banner, charts, html.H5("Indicateurs (les plus vus)"), _table(m["table"], cols)]
+        )
 
     return app
 

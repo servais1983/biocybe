@@ -318,3 +318,11 @@ nk:
   default_action: "suspend" # suspend (reversible) | terminate | kill
   allow_kill: false         # kill (SIGKILL) exige cet opt-in explicite
   max_actions_per_minute: 10
+
+# Memoire immunitaire persistante (apprentissage cross-session)
+# Quand activee, le watcher temps-reel et le scan croisent les detections
+# avec la memoire : suppression des faux positifs confirmes par analyste
+# (biocybe memory mark ... --as benign) + renforcement sur menaces recurrentes.
+memory:
+  enabled: false
+  db_path: "db/memory/immune_memory.db"

@@ -730,6 +730,20 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
     return service
 
 
+def _build_immune_memory_from_config(config: dict):
+    """Construit une ImmuneMemory depuis config.memory, ou None si désactivée."""
+    mem_cfg = (config or {}).get("memory") or {}
+    if not mem_cfg.get("enabled", False):
+        return None
+    try:
+        from .memory import ImmuneMemory
+
+        return ImmuneMemory(mem_cfg.get("db_path", "db/memory/immune_memory.db"))
+    except Exception as exc:
+        logger.warning("Mémoire immunitaire indisponible : %s", exc)
+        return None
+
+
 def _build_nk_cell_from_config(config: dict):
     """Construit une NKCell depuis config.nk, ou None si section absente.
 
@@ -1754,6 +1768,14 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         # Fallback : lire depuis config si pas d'arg CLI
         watch_dirs = config.get("core", {}).get("watch_directories", []) or []
 
+    # ---- Mémoire immunitaire (opt-in via config.memory.enabled) ----
+    immune_memory = _build_immune_memory_from_config(config)
+    if immune_memory is not None:
+        logger.info(
+            "Mémoire immunitaire active (%d indicateurs connus)",
+            immune_memory.stats()["total"],
+        )
+
     if watch_dirs:
         from .lymphocytes_b import BCell
         from .scanner import sync_yara_rules
@@ -1766,6 +1788,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             cell=rt_cell,
             quarantine_on_match=args.watch_quarantine,
             dry_run=args.watch_dry_run,
+            memory=immune_memory,
         )
         watcher.start()
 
@@ -1799,6 +1822,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         print(
             f"Network monitor : {netmon_service.ioc_total} IOCs, "
             "surveillance des connexions sortantes"
+        )
+    if immune_memory is not None:
+        print(
+            f"Mémoire immunitaire : {immune_memory.stats()['total']} indicateurs connus "
+            "(suppression FP + apprentissage)"
         )
     print("Appuyez sur Ctrl+C pour arrêter le système")
 
@@ -1834,6 +1862,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         if notify_mgr is not None:
             try:
                 notify_mgr.shutdown(wait=False)
+            except Exception:
+                pass
+        if immune_memory is not None:
+            try:
+                immune_memory.close()
             except Exception:
                 pass
         logger.info("Système BioCybe arrêté")
