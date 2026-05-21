@@ -1,7 +1,7 @@
 # BioCybe — Déploiement local par docker-compose
 # ===============================================
-# Profil minimal pour démo / dev / petit déploiement SOC.
-# Pour la prod, voir docs/deployment.md (à venir Phase 2.4).
+# Profil minimal pour dev / petit déploiement SOC.
+# Pour la prod (systemd / Compose durci / Kubernetes), voir docs/deployment.md.
 #
 # Usage :
 #   docker compose up -d              # démarre le daemon BioCybe

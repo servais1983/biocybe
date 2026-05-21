@@ -34,6 +34,9 @@ docker run --rm -v "$PWD/samples:/samples:ro" biocybe:latest scan /samples
 docker compose up -d
 ```
 
+> **Déploiement production** (systemd, Compose durci, Kubernetes, observabilité,
+> séquence de mise en service) : voir le [guide de déploiement](docs/deployment.md).
+
 **Option C — sans installer (dev local)**
 ```bash
 pip install -e .            # nécessaire au moins une fois
