@@ -5,6 +5,50 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Auto-régénération automatique dans le daemon (anti-ransomware live)
+
+Prolongement spectaculaire : le daemon **restaure les fichiers sans
+intervention humaine** quand il détecte une attaque ransomware en cours.
+
+#### Détection de rafale ransomware
+
+Le watcher temps-réel reçoit un `SelfHealer` optionnel. Sur chaque
+événement fichier visant un chemin **baseliné**, il vérifie le drift
+(hash ≠ baseline — un ransomware chiffre des fichiers sains qui ne
+matchent aucune signature, d'où une détection indépendante du scan
+malware). Les drifts sont comptés dans une **fenêtre glissante** :
+au-delà du seuil de rafale (défaut 5 fichiers en 10s = signature
+ransomware), l'attaque est suspectée.
+
+#### Réponse graduée (sécurité d'abord)
+
+  - **`auto_heal: false` (défaut)** : alerte critique via NotifierManager
+    (« ransomware suspecté, lancez `regen heal --execute` ») — l'humain
+    décide. Une modification isolée sous le seuil ne déclenche rien
+    (respect des éditions légitimes).
+  - **`auto_heal: true`** : restauration **automatique** de tous les
+    fichiers en drift depuis le coffre intègre. La fenêtre est réinitialisée
+    après le heal.
+
+#### Intégration daemon
+
+  - `_build_self_healer_from_config` (opt-in `config.regeneration.enabled`)
+  - Passé au `FileSystemWatcher` (`regen_healer`, `regen_auto_heal`,
+    `regen_burst_threshold`, `regen_burst_window`)
+  - Section `regeneration` dans `config/biocybe.yaml`
+  - `WatcherStats` : `regen_drift_detected` + `regen_healed`, exposés dans
+    les métriques Prometheus du daemon (`biocybe_watcher_regen_*`)
+
+#### Tests (`tests/test_regen_watcher.py`, 9 tests)
+
+  - Drift sur fichier baseliné compté, fichier intact / non-baselinés
+    ignorés
+  - **Rafale → auto-heal restaure TOUS les fichiers** ; mode alerte
+    (auto_heal off) → drift compté mais aucune restauration
+  - Sous le seuil → pas de heal (édition légitime respectée)
+  - Sans healer → aucun effet, pas de crash
+  - Wiring daemon : désactivé/activé via config
+
 ### Auto-régénération (self-healing) — capacité phare anti-ransomware
 
 LA capacité la plus innovante, jusqu'ici manquante. BioCybe savait

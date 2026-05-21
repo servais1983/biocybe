@@ -746,6 +746,37 @@ def _build_immune_memory_from_config(config: dict):
         return None
 
 
+def _build_self_healer_from_config(config: dict):
+    """Construit un SelfHealer depuis config.regeneration, ou None si désactivé.
+
+    Retourne (healer, auto_heal, burst_threshold, burst_window) ou None.
+    """
+    regen_cfg = (config or {}).get("regeneration") or {}
+    if not regen_cfg.get("enabled", False):
+        return None
+    try:
+        from .regeneration import SelfHealer
+
+        healer = SelfHealer(
+            vault_dir=regen_cfg.get("vault", "db/regeneration/vault"),
+            manifest_path=regen_cfg.get("manifest", "db/regeneration/baseline.json"),
+        )
+    except Exception as exc:
+        logger.warning("Auto-régénération indisponible : %s", exc)
+        return None
+    if healer.stats()["baseline_total"] == 0:
+        logger.warning(
+            "Auto-régénération activée mais baseline vide. "
+            "Crée-en une : biocybe regen baseline <chemins...>"
+        )
+    return {
+        "healer": healer,
+        "auto_heal": bool(regen_cfg.get("auto_heal", False)),
+        "burst_threshold": int(regen_cfg.get("burst_threshold", 5)),
+        "burst_window": float(regen_cfg.get("burst_window", 10)),
+    }
+
+
 def _build_daemon_metrics_server(config: dict, *, cli_args, watcher, netmon_service, immune_memory):
     """Construit + démarre le serveur /metrics du daemon, ou None si désactivé.
 
@@ -1911,6 +1942,16 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             immune_memory.stats()["total"],
         )
 
+    # ---- Auto-régénération (opt-in via config.regeneration.enabled) ----
+    regen_cfg = _build_self_healer_from_config(config)
+    if regen_cfg is not None:
+        mode = "AUTO-HEAL" if regen_cfg["auto_heal"] else "ALERTE-SEULEMENT"
+        logger.info(
+            "Auto-régénération active (%d fichiers baselinés, mode %s)",
+            regen_cfg["healer"].stats()["baseline_total"],
+            mode,
+        )
+
     if watch_dirs:
         from .lymphocytes_b import BCell
         from .scanner import sync_yara_rules
@@ -1924,6 +1965,10 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             quarantine_on_match=args.watch_quarantine,
             dry_run=args.watch_dry_run,
             memory=immune_memory,
+            regen_healer=regen_cfg["healer"] if regen_cfg else None,
+            regen_auto_heal=regen_cfg["auto_heal"] if regen_cfg else False,
+            regen_burst_threshold=regen_cfg["burst_threshold"] if regen_cfg else 5,
+            regen_burst_window=regen_cfg["burst_window"] if regen_cfg else 10.0,
         )
         watcher.start()
 
@@ -1971,6 +2016,12 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         print(
             f"Mémoire immunitaire : {immune_memory.stats()['total']} indicateurs connus "
             "(suppression FP + apprentissage)"
+        )
+    if regen_cfg is not None:
+        mode = "auto-heal" if regen_cfg["auto_heal"] else "alerte seulement"
+        print(
+            f"Auto-régénération : {regen_cfg['healer'].stats()['baseline_total']} fichiers "
+            f"protégés, mode {mode}"
         )
     if metrics_server is not None:
         print("Métriques Prometheus du daemon exposées (watcher/NK/netmon/mémoire)")

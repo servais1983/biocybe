@@ -119,6 +119,9 @@ class WatcherStats:
     errors: int = 0
     # Détections étouffées car faux positif confirmé en mémoire immunitaire
     memory_suppressed: int = 0
+    # Auto-régénération : fichiers baselinés détectés en drift / restaurés
+    regen_drift_detected: int = 0
+    regen_healed: int = 0
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
@@ -130,6 +133,8 @@ class WatcherStats:
             "quarantined": self.quarantined,
             "errors": self.errors,
             "memory_suppressed": self.memory_suppressed,
+            "regen_drift_detected": self.regen_drift_detected,
+            "regen_healed": self.regen_healed,
             "uptime_seconds": time.time() - self.started_at,
         }
 
@@ -190,6 +195,10 @@ class FileSystemWatcher:
         excluded_dirs: frozenset[str] = DEFAULT_WATCH_EXCLUDED_DIRS,
         excluded_suffixes: frozenset[str] = DEFAULT_EXCLUDED_SUFFIXES,
         memory=None,
+        regen_healer=None,
+        regen_auto_heal: bool = False,
+        regen_burst_threshold: int = 5,
+        regen_burst_window: float = 10.0,
     ):
         self.directories = [Path(d).resolve() for d in directories]
         self.cell = cell or BCell("realtime_watcher")
@@ -197,6 +206,15 @@ class FileSystemWatcher:
         self.dry_run = dry_run
         # Mémoire immunitaire optionnelle : suppression FP + apprentissage
         self.memory = memory
+        # Auto-régénération : SelfHealer optionnel + détection de rafale
+        # ransomware. Par défaut auto_heal=False = alerte seulement (la
+        # restauration auto écrase des fichiers, donc opt-in explicite).
+        self.regen_healer = regen_healer
+        self.regen_auto_heal = bool(regen_auto_heal)
+        self.regen_burst_threshold = int(regen_burst_threshold)
+        self.regen_burst_window = float(regen_burst_window)
+        self._regen_window: deque[float] = deque()
+        self._regen_lock = threading.Lock()
         self.recursive = recursive
         self.callback = callback
         self.debounce_seconds = debounce_seconds
@@ -296,6 +314,12 @@ class FileSystemWatcher:
             ev.result = self.cell.scan_file_sync(path)
             self.stats.events_scanned += 1
 
+            # Auto-régénération : un fichier baseliné a-t-il dérivé ?
+            # (indépendant de la détection malware — un ransomware chiffre
+            # des fichiers sains qui ne matchent aucune signature).
+            if self.regen_healer is not None:
+                self._check_regeneration(path)
+
             # Mémoire immunitaire : suppression FP + apprentissage (réponse 2ndaire)
             if ev.is_malicious and self.memory is not None:
                 if self._apply_memory(path, ev):
@@ -371,6 +395,82 @@ class FileSystemWatcher:
                 self.callback(ev)
             except Exception as exc:
                 logger.error("Callback watcher a levé une exception : %s", exc)
+
+    def _check_regeneration(self, path: str) -> None:
+        """Détecte le drift d'un fichier baseliné + rafale ransomware.
+
+        Si un fichier protégé par la baseline a été modifié, on l'enregistre
+        dans une fenêtre glissante. Au-delà du seuil de rafale (N fichiers
+        en T secondes = signature ransomware), on alerte et — si auto_heal
+        est activé — on restaure les fichiers en drift depuis le coffre.
+        """
+        try:
+            from .scanner import _sha256_of_file
+
+            key = str(Path(path).resolve())
+            entry = self.regen_healer._entries.get(key)
+            if entry is None:
+                return  # pas un fichier baseliné
+            cur = _sha256_of_file(Path(path))
+            if cur is None or cur == entry.sha256:
+                return  # intact
+        except Exception as exc:
+            logger.error("Régénération (check %s) : %s", path, exc)
+            return
+
+        # Drift détecté sur un fichier protégé
+        self.stats.regen_drift_detected += 1
+        now = time.time()
+        with self._regen_lock:
+            self._regen_window.append(now)
+            cutoff = now - self.regen_burst_window
+            while self._regen_window and self._regen_window[0] < cutoff:
+                self._regen_window.popleft()
+            burst = len(self._regen_window) >= self.regen_burst_threshold
+            window_count = len(self._regen_window)
+
+        logger.warning(
+            "[REGEN] drift sur fichier protégé : %s (%d en %.0fs)",
+            path,
+            window_count,
+            self.regen_burst_window,
+        )
+
+        if not burst:
+            return
+
+        # Rafale = ransomware suspecté
+        try:
+            from .isolation import _fire_notify
+
+            _fire_notify(
+                kind="realtime_detection",
+                severity="critical",
+                title="Ransomware suspecté : modification de masse de fichiers protégés",
+                message=f"{window_count} fichiers baselinés modifiés en "
+                f"{self.regen_burst_window:.0f}s. "
+                + ("Régénération automatique déclenchée." if self.regen_auto_heal
+                   else "Lancez `biocybe regen heal --execute` pour restaurer."),
+                payload={"window_count": window_count, "auto_heal": self.regen_auto_heal},
+            )
+        except Exception:
+            pass
+
+        if self.regen_auto_heal:
+            try:
+                from .regeneration import HealAction
+
+                results = self.regen_healer.heal(dry_run=False)
+                healed = sum(1 for r in results if r.action == HealAction.RESTORED)
+                self.stats.regen_healed += healed
+                logger.warning(
+                    "[REGEN] auto-restauration : %d fichier(s) restauré(s) depuis la baseline",
+                    healed,
+                )
+                with self._regen_lock:
+                    self._regen_window.clear()
+            except Exception as exc:
+                logger.error("[REGEN] auto-heal a échoué : %s", exc)
 
     def _apply_memory(self, path: str, ev) -> bool:
         """Croise une détection RT avec la mémoire immunitaire.

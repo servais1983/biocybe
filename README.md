@@ -197,6 +197,11 @@ biocybe regen status                                       # état de la baselin
 # → cas ransomware : baseline avant l'attaque, puis `heal --execute` restaure
 #   les fichiers chiffrés depuis le coffre intègre (vérif SHA-256, atomique)
 
+# Auto-régénération LIVE dans le daemon (config regeneration.enabled + auto_heal) :
+biocybe --watch /var/www                                   # détecte rafale ransomware
+# → 5 fichiers protégés modifiés en 10s = ransomware suspecté → alerte critique,
+#   et si auto_heal=true : restauration AUTOMATIQUE sans intervention humaine
+
 # --- Mémoire immunitaire : apprentissage cross-session ---
 biocybe memory stats                                       # compteurs + top familles
 biocybe memory recall <hash|ip|hostname>                   # ce qu'on sait de cet indicateur

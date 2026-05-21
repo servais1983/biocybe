@@ -333,3 +333,16 @@ memory:
 metrics:
   daemon_enabled: false
   daemon_port: 9091
+
+# Auto-regeneration (self-healing) — restauration anti-ransomware
+# Quand activee + une baseline existe (biocybe regen baseline ...), le
+# watcher detecte les modifications de fichiers proteges. Au-dela du seuil
+# de rafale (signature ransomware), il alerte et — si auto_heal=true —
+# restaure automatiquement les fichiers depuis le coffre integre.
+regeneration:
+  enabled: false
+  auto_heal: false            # false = alerte seulement ; true = restauration auto (ecrase)
+  vault: "db/regeneration/vault"
+  manifest: "db/regeneration/baseline.json"
+  burst_threshold: 5          # N fichiers proteges modifies...
+  burst_window: 10            # ...en T secondes = ransomware suspecte

@@ -79,6 +79,8 @@ class DaemonMetricsServer:
                             "detections",
                             "quarantined",
                             "memory_suppressed",
+                            "regen_drift_detected",
+                            "regen_healed",
                             "errors",
                         ):
                             g = GaugeMetricFamily(
