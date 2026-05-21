@@ -13,6 +13,7 @@ tests d'intégration.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from collections.abc import Iterator
@@ -59,6 +60,9 @@ class FileVerdict:
     # référencés depuis URLhaus/ThreatFox). None si le scan réseau n'a pas
     # été activé pour ce fichier.
     network: NetworkScanResult | None = None
+    # Mémoire immunitaire : True si ce verdict a été supprimé car le
+    # fichier est un faux positif confirmé en mémoire (réponse secondaire).
+    suppressed_by_memory: bool = False
 
     @property
     def is_malicious(self) -> bool:
@@ -148,6 +152,7 @@ def scan_path(
     network_scan: bool = False,
     sentinel: NetworkSentinel | None = None,
     db_path: str | Path = "db/signatures",
+    memory=None,
 ) -> list[FileVerdict]:
     """Scanne un fichier ou un dossier, retourne la liste des verdicts.
 
@@ -169,6 +174,11 @@ def scan_path(
             `db_path`. Si le lookup est vide (feeds jamais importés), la
             sentinelle ne fait rien — c'est OK.
         db_path: racine des index IOC (`db/signatures/` par défaut).
+        memory: `ImmuneMemory` optionnelle (apprentissage cross-session).
+            Si fournie : les fichiers flaggés sont croisés avec la mémoire
+            par leur SHA-256. Un faux positif confirmé est SUPPRIMÉ
+            (réponse secondaire : on n'alerte plus sur un FP connu) ; les
+            vraies détections sont mémorisées pour renforcer les futures.
     """
     target_path = Path(target).resolve()
     if not target_path.exists():
@@ -204,6 +214,13 @@ def scan_path(
                 verdict.network = sentinel.scan_file(file_path)
             except Exception as exc:
                 logger.error("Échec network scan pour %s : %s", file_path, exc)
+
+        # Mémoire immunitaire : suppression FP + apprentissage (réponse 2ndaire)
+        if memory is not None and verdict.is_malicious:
+            try:
+                _apply_immune_memory(verdict, memory)
+            except Exception as exc:
+                logger.error("Mémoire immunitaire (scan %s) : %s", file_path, exc)
 
         if verdict.is_malicious and quarantine:
             if dry_run:
@@ -245,6 +262,56 @@ def scan_path(
         verdicts.append(verdict)
 
     return verdicts
+
+
+def _sha256_of_file(path: Path, *, chunk: int = 1024 * 1024) -> str | None:
+    """SHA-256 d'un fichier (lecture par chunks). None en cas d'erreur."""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for block in iter(lambda: f.read(chunk), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _apply_immune_memory(verdict: FileVerdict, memory) -> None:
+    """Croise un verdict malveillant avec la mémoire immunitaire.
+
+    - Faux positif confirmé en mémoire → SUPPRESSION (le verdict n'est
+      plus considéré malveillant ; `suppressed_by_memory=True`).
+    - Sinon → mémorise la détection (réponse secondaire renforcée la
+      prochaine fois) et ajuste la confiance via l'historique.
+    """
+    from .memory import VERDICT_MALICIOUS
+
+    sha = _sha256_of_file(verdict.path)
+    if sha is None:
+        return
+
+    rec = memory.recall(sha, "sha256")
+    if rec is not None and rec.is_confirmed_benign:
+        # Faux positif connu : on étouffe l'alerte (sans toucher au scan
+        # réseau, qui peut rester pertinent indépendamment).
+        verdict.result.is_malicious = False
+        verdict.suppressed_by_memory = True
+        logger.info(
+            "Mémoire : %s supprimé (faux positif confirmé, sha256=%s…)",
+            verdict.path,
+            sha[:12],
+        )
+        return
+
+    # Mémorise/renforce la détection
+    memory.remember(
+        sha,
+        indicator_type="sha256",
+        verdict=VERDICT_MALICIOUS,
+        confidence=round(verdict.result.confidence * 100),
+        family=verdict.result.malware_family,
+        source=f"scanner:{verdict.result.severity}",
+    )
 
 
 def format_report(verdicts: list[FileVerdict]) -> str:

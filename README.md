@@ -185,6 +185,17 @@ biocybe --watch /tmp --watch-quarantine --netmon           # full stack live
 # → recharge les IOCs automatiquement après un cron `intel update` (sans redémarrer)
 # → activable aussi via config : netmon.enabled: true
 
+# --- Mémoire immunitaire : apprentissage cross-session ---
+biocybe memory stats                                       # compteurs + top familles
+biocybe memory recall <hash|ip|hostname>                   # ce qu'on sait de cet indicateur
+biocybe memory recent --most-seen                          # menaces les plus récurrentes
+biocybe memory mark <hash> --type sha256 --as benign       # marque un FAUX POSITIF
+# → plus jamais d'alerte sur cet indicateur (réduction du bruit SOC)
+biocybe memory mark <hash> --type sha256 --as malicious    # confirme une menace (réponse max)
+biocybe memory forget <hash> --type sha256                 # purge une entrée
+# → réponse secondaire : un indicateur déjà vu obtient un verdict instantané,
+#   la confiance se renforce à chaque récurrence, les FP confirmés sont supprimés
+
 # --- Cellules NK : réponse active sur processus malveillants ---
 biocybe nk status                                          # config NK effective + test protection
 biocybe nk status --pid 1                                  # le PID 1 est-il protégé ? (oui)
@@ -233,6 +244,7 @@ La restauration vérifie le SHA-256 contre la valeur enregistrée (anti-tamperin
 | **3.h** Daemon unifié (netmon live) | ✅ | `NetworkMonitorService` intégré au daemon : surveillance des connexions sortantes en continu, `on_match` → audit immuable + notification, rechargement à chaud des IOCs après cron `intel update`. Flags `--netmon`/`--netmon-interval`, config `netmon.*`. 9 tests |
 | **2.3.c** Dashboard SOC (Dash) | ✅ | UI triage lecture seule (Dash + Bootstrap dark) : cartes KPI + onglets Quarantaine/Audit/Threat Intel, vérif chaîne audit SHA-256 en live, charts Plotly, auto-refresh, servi waitress. Couche données découplée et testable. `biocybe dashboard serve`. 11 tests |
 | **Cellules NK** Réponse active | ✅ | `NKCell` : suspend (réversible) / terminate / kill de processus malveillants. Garde-fous : désactivée+dry-run par défaut, liste de process protégés (init/systemd/lsass/svchost/BioCybe...), seuil de confiance, anti-PID-recycling, rate-limit, audit systématique. Isolation réseau via sinkhole DNS. CLI `nk {respond,resume,status}` + réponse auto sur détection netmon (opt-in). 22 tests |
+| **Mémoire immunitaire** Apprentissage cross-session | ✅ | `ImmuneMemory` (SQLite) : recall instantané d'un indicateur connu (réponse secondaire), suppression des faux positifs confirmés par analyste, renforcement de confiance sur menaces récurrentes, historique forensique. Intégré au scanner (suppression FP + apprentissage). CLI `memory {stats,recall,recent,mark,forget}`. 16 tests + smoke test persistance réel |
 | **Validation E2E** Pipeline intel | ✅ | `scripts/validate_intel_pipeline.py` : 35 vérifications réelles (vraie connexion socket observée par psutil), IOCs RFC 5737/2606, 0 mock de logique métier |
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour le détail livré à chaque version.
@@ -264,10 +276,11 @@ BioCybe s'inspire du système immunitaire pour créer une défense en profondeur
 - Quarantaine des fichiers potentiellement malveillants
 - Actions automatisées ou semi-automatisées selon configuration
 
-### 5. Mémoire Immunitaire (Historique adaptatif)
-- Apprentissage continu et adaptation du système
-- Base de connaissances des incidents passés
-- Amélioration du taux de détection et réduction des faux positifs
+### 5. Mémoire Immunitaire (Historique adaptatif) ✅
+- Apprentissage continu cross-session (SQLite persistant)
+- **Réponse secondaire** : un pathogène déjà rencontré → verdict instantané, confiance renforcée
+- Suppression des faux positifs confirmés par analyste (réduction du bruit SOC)
+- Base de connaissances forensique : first/last_seen, times_seen, famille par indicateur
 
 ### 6. Autres modules inspirés de la nature
 - **Algorithmes de colonies de fourmis** pour la détection collaborative

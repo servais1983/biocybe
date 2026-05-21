@@ -5,6 +5,71 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Mémoire immunitaire persistante — apprentissage cross-session
+
+Dernier grand pilier bio-inspiré annoncé et non codé. Reproduit la
+**réponse secondaire** du système immunitaire : un pathogène déjà
+rencontré déclenche une réaction plus rapide et plus forte qu'à la
+première exposition.
+
+#### Nouveau module
+
+- **`biocybe.memory.ImmuneMemory`** — store SQLite (WAL, thread-safe) :
+  - `remember(indicator, ...)` — enregistre/met à jour une observation.
+    Sur ré-exposition : incrémente `times_seen`, garde la confiance MAX,
+    ne régresse jamais un verdict `malicious` vers `benign`.
+  - `recall(indicator)` — verdict instantané pour un indicateur connu
+    (réponse secondaire rapide, sans relancer YARA/ML).
+  - `set_disposition(...)` — feedback analyste : `confirmed_benign`
+    (= faux positif) ou `confirmed_malicious`.
+  - `adjust_confidence(indicator, base)` — cœur de la réponse
+    secondaire : **0** si FP confirmé (supprimé), **100** si malveillant
+    confirmé (réponse maximale immédiate), **base + min(times_seen, 10)**
+    si récurrent (renforcement progressif), base sinon.
+  - `is_known_benign`, `forget`, `stats`, `top_families`, `recent`,
+    `most_seen`.
+  - Persistance cross-session : la mémoire survit au redémarrage du
+    daemon (validé par smoke test réel).
+
+#### Intégration scanner
+
+`scanner.scan_path(..., memory=ImmuneMemory(...))` :
+  - Un fichier flaggé dont le SHA-256 est un **faux positif confirmé** en
+    mémoire est **supprimé** (`verdict.suppressed_by_memory=True`) — on
+    n'alerte plus jamais sur un FP connu, la plaie n°1 des SOC.
+  - Les vraies détections sont **mémorisées** (famille, confiance,
+    sévérité) pour renforcer les futures réponses.
+  - Ne hashe que les fichiers déjà flaggés (coût négligeable).
+
+#### CLI
+
+  - `biocybe memory stats [--json]` — compteurs par verdict/disposition
+    + top familles
+  - `biocybe memory recall <indicator> [--type T]` — ce que la mémoire
+    sait (type auto-deviné si omis)
+  - `biocybe memory recent [--limit N] [--most-seen]` — récents ou plus
+    fréquents
+  - `biocybe memory mark <indicator> --type T --as benign|malicious`
+    — feedback analyste (benign = supprime les futures alertes)
+  - `biocybe memory forget <indicator> --type T` — purge
+
+#### Tests (`tests/test_immune_memory.py`, 16 tests)
+
+  - `remember` création + mise à jour (times_seen, conf MAX, pas de
+    régression de verdict), recall par type/auto, dispositions, persistance
+    cross-session (réouverture DB), forget, stats/top_families/most_seen
+  - `adjust_confidence` : tous les cas de la réponse secondaire
+    (inconnu/récurrent/confirmé malveillant/FP)
+  - Intégration scanner : suppression FP confirmé + apprentissage d'une
+    nouvelle détection
+  - CLI : stats, mark+recall, recall inconnu, forget, recent
+
+#### Smoke test réel validé
+
+Persistance SQLite cross-session (fermeture/réouverture), réponse
+secondaire (confiance 60 → 63 après récurrence), suppression FP
+(confiance 99 → 0 après marquage analyste).
+
 ### Cellules NK (Natural Killer) — réponse active sur processus malveillants
 
 Premier module BioCybe qui passe de la **détection** à la **réponse

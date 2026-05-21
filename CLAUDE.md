@@ -31,6 +31,7 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `deploy/refresh/` — templates refresh auto (systemd .service+.timer, k8s CronJob, crontab) + monitoring
 - `src/biocybe/dashboard/{data,app}.py` — dashboard SOC (Phase 2.3.c), couche données testable + UI Dash, `biocybe dashboard serve`
 - `src/biocybe/nk_cells/nk_cell.py` — Cellules NK (réponse active : suspend/terminate/kill + isolation réseau), ULTRA-conservateur (dry-run + protégés + audit), `biocybe nk {respond,resume,status}`
+- `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner, `biocybe memory {stats,recall,recent,mark,forget}`
 - `src/biocybe/intel/rules.py` — import opt-in règles YARA communautaires
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique
@@ -52,7 +53,7 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 ### Annoncé dans le README mais **zéro code**
 - ~~Lymphocytes T (anomalies sans signature)~~ ✅ livré Phase 2.2.d
 - ~~Cellules NK (action sur les processus malveillants détectés)~~ ✅ livré (suspend/kill + garde-fous + audit)
-- Mémoire immunitaire persistante (apprentissage cross-session)
+- ~~Mémoire immunitaire persistante (apprentissage cross-session)~~ ✅ livré (SQLite, réponse secondaire, suppression FP)
 - Modules « épigénétique / coévolutif »
 - ~~Tableau de bord web (deps Flask/Dash listées mais aucun code)~~ ✅ livré Phase 2.3.c
 
@@ -179,6 +180,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | **3.h — Daemon unifié (netmon live)** | ✅ | `NetworkMonitorService` (monitor + auto-reload IOCs via fingerprint last_update). Intégré `cmd_daemon` : `on_match` → audit `network_ioc_detected` + notify (critical si conf≥90). Flags `--netmon`/`--netmon-interval`, config `netmon.*`. Combinable avec `--watch`. 9 tests |
 | **Cellules NK — réponse active** | ✅ | `NKCell` suspend/terminate/kill + isolation réseau. Garde-fous : désactivée+dry-run défaut, process protégés, seuil confiance, anti-PID-recycling, rate-limit, audit. CLI `nk {respond,resume,status}` + auto-respond opt-in sur netmon. 22 tests + smoke test réel (suspend/resume/kill d'un vrai process) |
 | **Validation E2E intel** | ✅ | `scripts/validate_intel_pipeline.py` 35 checks réels (vraie connexion socket), IOCs RFC 5737/2606, 0 mock métier |
+| **Mémoire immunitaire** | ✅ | `ImmuneMemory` SQLite : recall instantané (réponse secondaire), suppression FP confirmés, renforcement confiance récurrence, persistance cross-session. Intégrée scanner. CLI `memory {stats,recall,recent,mark,forget}`. 16 tests + smoke réel |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |
 
 ### Ce qui a été livré en Phase 1

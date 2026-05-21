@@ -1131,6 +1131,145 @@ def cmd_intel_stats(args: argparse.Namespace) -> int:
     return 0 if total > 0 else 1
 
 
+def _guess_indicator_type(value: str) -> str:
+    """Devine le type d'un indicateur (cohérent avec IOCLookup.lookup_auto)."""
+    import ipaddress
+
+    v = value.strip()
+    if len(v) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in v):
+        return {32: "md5", 40: "sha1", 64: "sha256"}[len(v)]
+    if v.lower().startswith(("http://", "https://", "ftp://")):
+        return "url"
+    candidate = v.split(":", 1)[0] if v.count(":") == 1 else v
+    try:
+        ipaddress.ip_address(candidate)
+        return "ip"
+    except ValueError:
+        pass
+    if "/" in v or "\\" in v:
+        return "path"
+    if "." in v:
+        return "hostname"
+    return "family"
+
+
+def cmd_memory_stats(args: argparse.Namespace) -> int:
+    from .memory import ImmuneMemory
+
+    mem = ImmuneMemory(args.db_path)
+    stats = mem.stats()
+    families = mem.top_families(10)
+    mem.close()
+    if args.json:
+        print(json.dumps({**stats, "top_families": families}, indent=2, ensure_ascii=False))
+    else:
+        print(f"Memoire immunitaire : {stats['db_path']}")
+        print(f"  Total indicateurs : {stats['total']}")
+        print(f"  Par verdict       : {stats['by_verdict']}")
+        print(f"  Par disposition   : {stats['by_disposition']}")
+        if families:
+            print("  Top familles      :")
+            for fam, n in families:
+                print(f"    {fam:24} {n}")
+    return 0
+
+
+def cmd_memory_recall(args: argparse.Namespace) -> int:
+    from .memory import ImmuneMemory
+
+    itype = args.type or _guess_indicator_type(args.indicator)
+    mem = ImmuneMemory(args.db_path)
+    rec = mem.recall(args.indicator, itype if args.type else None)
+    mem.close()
+    if rec is None:
+        if args.json:
+            print(json.dumps({"indicator": args.indicator, "found": False}))
+        else:
+            print(f"Inconnu en memoire : {args.indicator} (type devine: {itype})")
+        return 1
+    if args.json:
+        print(json.dumps(rec.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(f"MEMOIRE : {rec.indicator} [{rec.indicator_type}]")
+        print(f"  Verdict      : {rec.verdict}")
+        print(f"  Famille      : {rec.family or '—'}")
+        print(f"  Confiance    : {rec.confidence}/100")
+        print(f"  Vu           : {rec.times_seen} fois")
+        print(f"  Premiere fois: {rec.first_seen}")
+        print(f"  Derniere fois: {rec.last_seen}")
+        print(f"  Disposition  : {rec.disposition}")
+        if rec.notes:
+            print(f"  Notes        : {rec.notes}")
+    return 0
+
+
+def cmd_memory_recent(args: argparse.Namespace) -> int:
+    from .memory import ImmuneMemory
+
+    mem = ImmuneMemory(args.db_path)
+    records = mem.most_seen(args.limit) if args.most_seen else mem.recent(args.limit)
+    mem.close()
+    if args.json:
+        print(json.dumps([r.to_dict() for r in records], indent=2, ensure_ascii=False))
+    else:
+        label = "plus frequents" if args.most_seen else "plus recents"
+        print(f"Memoire immunitaire — {len(records)} indicateurs ({label}) :")
+        for r in records:
+            print(
+                f"  [{r.verdict[:4]}] {r.indicator[:50]:50} "
+                f"vu={r.times_seen:>4} conf={r.confidence:>3} {r.disposition}"
+            )
+    return 0
+
+
+def cmd_memory_mark(args: argparse.Namespace) -> int:
+    from .memory import (
+        DISPOSITION_CONFIRMED_BENIGN,
+        DISPOSITION_CONFIRMED_MALICIOUS,
+        DISPOSITION_UNREVIEWED,
+        ImmuneMemory,
+    )
+
+    disp_map = {
+        "benign": DISPOSITION_CONFIRMED_BENIGN,
+        "malicious": DISPOSITION_CONFIRMED_MALICIOUS,
+        "unreviewed": DISPOSITION_UNREVIEWED,
+    }
+    mem = ImmuneMemory(args.db_path)
+    # Crée l'entrée si absente (un analyste peut pré-marquer un FP connu)
+    if mem.recall(args.indicator, args.type) is None:
+        from .memory import VERDICT_BENIGN, VERDICT_MALICIOUS
+
+        verdict = VERDICT_BENIGN if args.disposition == "benign" else VERDICT_MALICIOUS
+        mem.remember(
+            args.indicator, indicator_type=args.type, verdict=verdict, source="analyst"
+        )
+    ok = mem.set_disposition(
+        args.indicator, args.type, disp_map[args.disposition], notes=args.notes
+    )
+    mem.close()
+    if ok:
+        print(f"Marque '{args.indicator}' [{args.type}] comme {args.disposition}.")
+        if args.disposition == "benign":
+            print("  -> les futures detections de cet indicateur seront supprimees (FP).")
+        return 0
+    print(f"Echec du marquage pour {args.indicator}", file=sys.stderr)
+    return 1
+
+
+def cmd_memory_forget(args: argparse.Namespace) -> int:
+    from .memory import ImmuneMemory
+
+    mem = ImmuneMemory(args.db_path)
+    ok = mem.forget(args.indicator, args.type)
+    mem.close()
+    if ok:
+        print(f"Oublie : {args.indicator} [{args.type}]")
+        return 0
+    print(f"Indicateur absent : {args.indicator} [{args.type}]", file=sys.stderr)
+    return 1
+
+
 def cmd_nk_respond(args: argparse.Namespace) -> int:
     """Réponse NK manuelle sur un PID (suspend/terminate/kill)."""
     from .nk_cells import NKAction, NKCell, NKConfig
@@ -2151,6 +2290,51 @@ def _build_parser() -> argparse.ArgumentParser:
     block_status.add_argument("--hosts-path", default=None)
     block_status.add_argument("--json", action="store_true")
 
+    # ---------------- memory (Mémoire immunitaire persistante) ---------------
+    mem_p = subparsers.add_parser(
+        "memory",
+        help="Memoire immunitaire : apprentissage cross-session des menaces",
+    )
+    mem_sub = mem_p.add_subparsers(dest="memory_command", required=True)
+
+    DEFAULT_MEM_DB = "db/memory/immune_memory.db"
+
+    mem_stats = mem_sub.add_parser("stats", help="Compteurs de la memoire")
+    mem_stats.add_argument("--db-path", default=DEFAULT_MEM_DB)
+    mem_stats.add_argument("--json", action="store_true")
+
+    mem_recall = mem_sub.add_parser("recall", help="Cherche un indicateur en memoire")
+    mem_recall.add_argument("indicator", help="Hash, IP, hostname, URL, chemin...")
+    mem_recall.add_argument("--type", default=None, help="Type d'indicateur (sinon auto)")
+    mem_recall.add_argument("--db-path", default=DEFAULT_MEM_DB)
+    mem_recall.add_argument("--json", action="store_true")
+
+    mem_recent = mem_sub.add_parser("recent", help="Dernieres entrees vues")
+    mem_recent.add_argument("--limit", type=int, default=20)
+    mem_recent.add_argument("--most-seen", action="store_true", help="Trie par frequence")
+    mem_recent.add_argument("--db-path", default=DEFAULT_MEM_DB)
+    mem_recent.add_argument("--json", action="store_true")
+
+    mem_mark = mem_sub.add_parser(
+        "mark", help="Feedback analyste : marque un indicateur (FP ou confirme)"
+    )
+    mem_mark.add_argument("indicator")
+    mem_mark.add_argument("--type", required=True, help="Type d'indicateur")
+    mem_mark.add_argument(
+        "--as",
+        dest="disposition",
+        required=True,
+        choices=["benign", "malicious", "unreviewed"],
+        help="benign = faux positif (supprime les futures alertes), malicious = confirme",
+    )
+    mem_mark.add_argument("--notes", default=None)
+    mem_mark.add_argument("--db-path", default=DEFAULT_MEM_DB)
+
+    mem_forget = mem_sub.add_parser("forget", help="Supprime une entree de la memoire")
+    mem_forget.add_argument("indicator")
+    mem_forget.add_argument("--type", required=True)
+    mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
+
     # ---------------- nk (Cellules NK — réponse active) ---------------------
     nk_p = subparsers.add_parser(
         "nk",
@@ -2320,6 +2504,17 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_intel_stats(args)
         if args.intel_command == "age":
             return cmd_intel_age(args)
+    if args.command == "memory":
+        if args.memory_command == "stats":
+            return cmd_memory_stats(args)
+        if args.memory_command == "recall":
+            return cmd_memory_recall(args)
+        if args.memory_command == "recent":
+            return cmd_memory_recent(args)
+        if args.memory_command == "mark":
+            return cmd_memory_mark(args)
+        if args.memory_command == "forget":
+            return cmd_memory_forget(args)
     if args.command == "nk":
         if args.nk_command == "respond":
             return cmd_nk_respond(args)
