@@ -157,8 +157,16 @@ cells:
         encoding="utf-8",
     )
 
-    print("[cache-test] RUN 1 (cold, compile + save cache)...")
-    cold_time, rc = measure_startup(workdir, max_wait=300)
+    # Cold-start = compilation de ~744 règles SANS cache.
+    # Cas observés sur Windows + Defender actif :
+    #   - Bulk compile (toutes règles OK) : ~311 s
+    #   - Mode tolérant (file-by-file, lorsque certaines règles
+    #     communautaires ont des identifiants indéfinis comme "filepath")
+    #     : ~1200 s (≈ 20 min). Mesure réelle observée le 2026-05-28.
+    # Le timeout doit accommoder le pire cas. Le cold est informatif ;
+    # la vraie assertion est le warm < 10s (preuve que .yarc fonctionne).
+    print("[cache-test] RUN 1 (cold, compile + save cache)... (peut prendre 5-20 min)")
+    cold_time, rc = measure_startup(workdir, max_wait=1800)
     if rc != 0:
         return 1
     print(f"[cache-test] COLD startup : {cold_time:.1f}s")
