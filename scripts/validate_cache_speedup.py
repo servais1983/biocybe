@@ -53,9 +53,13 @@ def measure_startup(workdir: Path, max_wait: int) -> tuple[float, int]:
     env["PYTHONIOENCODING"] = "utf-8"
 
     cmd = [
-        sys.executable, "-m", "biocybe",
-        "-c", str(cfg_path),
-        "--watch", str(watched),
+        sys.executable,
+        "-m",
+        "biocybe",
+        "-c",
+        str(cfg_path),
+        "--watch",
+        str(watched),
         "--watch-quarantine",
     ]
     popen_kwargs = {
@@ -69,9 +73,9 @@ def measure_startup(workdir: Path, max_wait: int) -> tuple[float, int]:
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    proc = subprocess.Popen(cmd, **popen_kwargs)
+    # cmd construit en interne (sys.executable + args fixes) — pas d'entree utilisateur
+    proc = subprocess.Popen(cmd, **popen_kwargs)  # noqa: S603
 
-    started_polling = time.time()
     first_ts = None
     ready_ts = None
 
@@ -130,13 +134,52 @@ def main() -> int:
     for r in (ROOT / "rules" / "yara").glob("*.yar"):
         (workdir / "rules" / "yara" / r.name).write_bytes(r.read_bytes())
     community = ROOT / "rules" / "yara" / "community"
+    # Pre-filtre des règles communautaires qui utilisent des variables
+    # externes (filepath, filename, extension) au moment de la compilation.
+    # Sans ce filtre, YARA bascule en mode tolérant file-by-file qui peut
+    # prendre ~20 min sur Windows + Defender (et parfois faire crasher le
+    # daemon par pression mémoire). Avec ce filtre, le bulk compile passe
+    # proprement en ~5 min — c'est ce qu'on veut mesurer pour le cache.
+    # Ces règles restent installables séparément ; elles ne sont juste
+    # pas adaptées à un bulk compile en absence des vars externes.
+    BROKEN_BULK_RULES = frozenset(
+        {
+            "configured_vulns_ext_vars.yar",
+            "expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar",
+            "expl_connectwise_screenconnect_vuln_feb24.yar",
+            "general_cloaking.yar",
+            "generic_anomalies.yar",
+            "gen_fake_amsi_dll.yar",
+            "gen_mal_3cx_compromise_mar23.yar",
+            "gen_susp_obfuscation.yar",
+            "gen_vcruntime140_dll_sideloading.yar",
+            "gen_webshells_ext_vars.yar",
+            "thor_inverse_matches.yar",
+            "yara-rules_vuln_drivers_strict_renamed.yar",
+            "yara_mixed_ext_vars.yar",
+        }
+    )
     n_community = 0
+    n_filtered = 0
     if community.is_dir():
         for sub in community.iterdir():
             if sub.is_dir():
-                shutil.copytree(sub, workdir / "rules" / "yara" / "community" / sub.name)
-                n_community += sum(1 for _ in (workdir / "rules" / "yara" / "community" / sub.name).glob("*.yar"))
-    print(f"[cache-test] {n_community} community rules + 2 natives = {n_community + 2} fichiers YARA")
+                dst = workdir / "rules" / "yara" / "community" / sub.name
+                dst.mkdir(parents=True, exist_ok=True)
+                for yar in sub.rglob("*.yar"):
+                    if yar.name in BROKEN_BULK_RULES:
+                        n_filtered += 1
+                        continue
+                    rel = yar.relative_to(sub)
+                    dst_file = dst / rel
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(yar, dst_file)
+                    n_community += 1
+    print(
+        f"[cache-test] {n_community} community rules + 2 natives = "
+        f"{n_community + 2} fichiers YARA "
+        f"({n_filtered} regles avec vars externes filtrees pour bulk compile)"
+    )
 
     (workdir / "watched").mkdir()
     (workdir / "config").mkdir()
@@ -172,7 +215,6 @@ cells:
     print(f"[cache-test] COLD startup : {cold_time:.1f}s")
 
     cache_bin = workdir / "db" / "signatures" / "yara" / "compiled.yarc"
-    cache_fp = workdir / "db" / "signatures" / "yara" / "compiled.fingerprint.json"
     if cache_bin.exists():
         print(f"[cache-test] Cache .yarc créé : {cache_bin.stat().st_size / 1024:.0f} KB")
     else:
