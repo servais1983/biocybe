@@ -77,23 +77,43 @@ def test_second_load_uses_cache(rules_dir, caplog):
     assert "Cache YARA chargé" in msgs, msgs
 
 
-def test_warm_load_faster_than_cold(rules_dir):
-    """Avec 2 règles le delta est petit mais le cache doit gagner."""
+def test_warm_load_faster_than_cold(tmp_path):
+    """Le cache doit battre la compilation.
+
+    Avec 2 règles, compile et load tombent tous deux ~1 ms : comparer ces
+    chronos mesure le bruit de la machine (échec observé en CI macOS :
+    warm 2 ms vs cold 1 ms). On génère donc un jeu de règles assez lourd
+    pour que la compilation coûte vraiment, et on garde le meilleur de 3
+    chargements warm.
+    """
     from biocybe.lymphocytes_b.b_cell import SignatureDatabase
 
-    # cold (compile + save)
-    t0 = time.time()
-    SignatureDatabase(str(rules_dir))
-    cold = time.time() - t0
+    yara_dir = tmp_path / "rules" / "yara"
+    yara_dir.mkdir(parents=True)
+    for f in range(20):
+        rules = []
+        for r in range(40):
+            strings = "\n".join(
+                f'        $s{k} = "marker_{f}_{r}_{k}_payload" nocase wide ascii' for k in range(8)
+            )
+            rules.append(
+                f"rule Perf_{f}_{r} {{\n    strings:\n{strings}\n"
+                f"    condition:\n        2 of them\n}}"
+            )
+        (yara_dir / f"perf_{f}.yar").write_text("\n\n".join(rules), encoding="utf-8")
+    rules_root = str(tmp_path / "rules")
 
-    # warm (load)
-    t0 = time.time()
-    SignatureDatabase(str(rules_dir))
-    warm = time.time() - t0
+    t0 = time.perf_counter()
+    SignatureDatabase(rules_root)  # cold : compile + sauvegarde du cache
+    cold = time.perf_counter() - t0
 
-    # warm doit être au pire 50% du cold sur ces 2 règles ;
-    # en pratique on observe ~10% (cache = file open + load binaire)
-    assert warm < cold, f"warm ({warm:.3f}s) doit être < cold ({cold:.3f}s)"
+    warm = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        SignatureDatabase(rules_root)  # warm : chargement du cache
+        warm = min(warm, time.perf_counter() - t0)
+
+    assert warm < cold, f"warm ({warm:.4f}s) doit être < cold ({cold:.4f}s)"
 
 
 def test_cache_invalidated_when_source_modified(rules_dir, caplog):
