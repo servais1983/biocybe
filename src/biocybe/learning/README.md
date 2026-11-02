@@ -37,28 +37,28 @@ Le cœur du module utilise un agent RL qui optimise les stratégies de défense 
 ```python
 # État: combinaison de signaux de danger
 state = {
-    'cpu_usage': 0.87,  # Usage CPU anormal
-    'file_entropy': 7.9,  # Entropie élevée (possible chiffrement)
-    'network_anomaly': 0.92,  # Communications suspectes
-    'syscall_pattern': 0.76,  # Patterns d'appels système suspects
-    'file_operations': 0.95  # Opérations fichiers intensives
+    "cpu_usage": 0.87,  # Usage CPU anormal
+    "file_entropy": 7.9,  # Entropie élevée (possible chiffrement)
+    "network_anomaly": 0.92,  # Communications suspectes
+    "syscall_pattern": 0.76,  # Patterns d'appels système suspects
+    "file_operations": 0.95,  # Opérations fichiers intensives
 }
 
 # Actions possibles
 actions = [
-    'monitor',  # Surveiller seulement
-    'isolate_process',  # Isoler le processus
-    'quarantine_file',  # Mettre en quarantaine
-    'terminate_process',  # Tuer le processus
-    'restore_from_backup'  # Restaurer les fichiers
+    "monitor",  # Surveiller seulement
+    "isolate_process",  # Isoler le processus
+    "quarantine_file",  # Mettre en quarantaine
+    "terminate_process",  # Tuer le processus
+    "restore_from_backup",  # Restaurer les fichiers
 ]
 
 # Récompenses
 rewards = {
-    'threat_neutralized': +10.0,  # Menace éliminée
-    'false_positive': -5.0,  # Fausse alerte
-    'system_damage': -8.0,  # Dommage au système
-    'missed_detection': -10.0  # Menace non détectée
+    "threat_neutralized": +10.0,  # Menace éliminée
+    "false_positive": -5.0,  # Fausse alerte
+    "system_damage": -8.0,  # Dommage au système
+    "missed_detection": -10.0,  # Menace non détectée
 }
 ```
 
@@ -77,15 +77,17 @@ Le système utilise l'apprentissage fédéré pour partager l'expérience sans c
 from learning.core import LearningEngine
 
 # Initialisation du moteur d'apprentissage
-learner = LearningEngine(config_path='config/learning.yaml')
+learner = LearningEngine(config_path="config/learning.yaml")
 
 # Enregistrement d'une expérience (action et résultat)
-learner.record_experience({
-    'threat_type': 'ransomware',
-    'action_taken': 'isolate_and_remove',
-    'success': True,
-    'context': {'cpu_usage': 0.92, 'file_entropy': 7.8, 'network_anomaly': 0.88}
-})
+learner.record_experience(
+    {
+        "threat_type": "ransomware",
+        "action_taken": "isolate_and_remove",
+        "success": True,
+        "context": {"cpu_usage": 0.92, "file_entropy": 7.8, "network_anomaly": 0.88},
+    }
+)
 
 # Mise à jour des modèles
 learner.update_models()

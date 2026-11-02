@@ -237,9 +237,9 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
   (un seul endroit). Une règle YARA `low` (ex. EICAR, poids 25) n'ouvre PAS
   d'incident seule — voulu. Le dashboard n'affiche pas encore les incidents
   (le JSONL `db/incidents/incidents.jsonl` est prêt à être lu).
-- `ruff format src` reformate aussi les blocs de code des README de
-  `detection/ isolation/ learning/ neutralization/` : ne pas les committer
-  par accident.
+- `ruff` n'est pas épinglé en CI : depuis ruff 0.16, `ruff format` formate
+  aussi les blocs de code Python des `.md` sous `src/`. Les README des
+  modules héritage ont été reformatés pour rester verts.
 
 - ~~Compilation YARA des 748 règles communautaires prend ~1m15 sur
   Windows + Defender actif~~ ✅ **résolu Phase 3.a** : cache

@@ -38,10 +38,10 @@ Ce module représente principalement :
 from detection.core import DetectionEngine
 
 # Initialisation du moteur de détection
-detector = DetectionEngine(config_path='config/detection.yaml')
+detector = DetectionEngine(config_path="config/detection.yaml")
 
 # Analyse d'un fichier
-result = detector.analyze_file('path/to/suspicious_file')
+result = detector.analyze_file("path/to/suspicious_file")
 
 # Affichage des résultats
 print(f"Malveillant: {result.is_malicious}")
