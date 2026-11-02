@@ -2400,6 +2400,24 @@ def cmd_dns_analyze(args: argparse.Namespace) -> int:
     return 1 if findings else 0
 
 
+def cmd_lab_score(args: argparse.Namespace) -> int:
+    """Confronte un plan d'exécution de labo aux incidents réellement produits."""
+    from .lab import format_scorecard, load_plan, score
+
+    try:
+        runs = load_plan(args.plan)
+    except (OSError, ValueError) as exc:
+        print(f"Plan invalide : {exc}", file=sys.stderr)
+        return 2
+    incidents = {i["incident_id"]: i for i in _load_incidents(args.store)}
+    card = score(runs, incidents, window_seconds=args.window, skew_seconds=args.skew)
+    if args.json:
+        print(json.dumps(card, indent=2, ensure_ascii=False))
+    else:
+        print(format_scorecard(card))
+    return 1 if card["missed"] else 0
+
+
 def cmd_coverage(args: argparse.Namespace) -> int:
     """Mesure la couverture MITRE par rejeu de télémétrie synthétique."""
     from .coverage import format_report, run_coverage, write_navigator
@@ -3396,6 +3414,20 @@ def _build_parser() -> argparse.ArgumentParser:
     dns_an.add_argument("--no-ioc", action="store_true", help="Heuristiques seules")
     dns_an.add_argument("--json", action="store_true")
 
+    # ---------------- lab (validation contre de vraies techniques) ----------
+    lab_p = subparsers.add_parser("lab", help="Validation en labo isole (docs/LAB_VALIDATION.md)")
+    lab_sub = lab_p.add_subparsers(dest="lab_command", required=True)
+    lab_score = lab_sub.add_parser(
+        "score", help="Plan d'execution (CSV) vs incidents produits — exit 1 si technique ratee"
+    )
+    lab_score.add_argument(
+        "--plan", required=True, help="CSV : technique,executed_at[,test_name,host]"
+    )
+    lab_score.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
+    lab_score.add_argument("--window", type=float, default=600.0, help="Fenetre de detection (s)")
+    lab_score.add_argument("--skew", type=float, default=60.0, help="Tolerance d'horloge (s)")
+    lab_score.add_argument("--json", action="store_true")
+
     # ---------------- coverage (mesure MITRE ATT&CK) ------------------------
     cov_p = subparsers.add_parser(
         "coverage",
@@ -3649,6 +3681,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_forget(args)
     if args.command == "dns" and args.dns_command == "analyze":
         return cmd_dns_analyze(args)
+    if args.command == "lab" and args.lab_command == "score":
+        return cmd_lab_score(args)
     if args.command == "coverage":
         return cmd_coverage(args)
     if args.command == "procmon":

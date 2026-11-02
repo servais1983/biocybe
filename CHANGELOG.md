@@ -5,6 +5,21 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Validation en labo isolé : guide + `biocybe lab score`
+
+- `docs/LAB_VALIDATION.md` : méthode de validation défensive (« purple
+  team ») contre de vraies techniques dans un labo isolé et autorisé —
+  topologie, isolation (snapshots, pas de route vers la prod), période de
+  référence des faux positifs, plan de test aligné sur le corpus `coverage`
+  (frameworks publiés, lecture de chaque test, nettoyage), interprétation
+  des écarts, contenu d'un rapport honnête. Modèle `docs/lab_plan_template.csv`.
+- `biocybe lab score --plan plan.csv` (`src/biocybe/lab.py`) : confronte le
+  plan d'exécution aux incidents réellement produits → taux de détection,
+  part systémique, latence (médiane/max), techniques ratées et **incidents
+  non expliqués** (faux positifs probables). Sous-techniques gérées, fenêtre
+  et tolérance d'horloge réglables, exit 1 si une technique est ratée. 4 tests.
+
+
 ### Capteur DNS : tunneling, DGA, beaconing, IOC (angle mort T1071.004 comblé)
 
 `src/biocybe/dns_monitor.py` — analyse séparée des sources :
