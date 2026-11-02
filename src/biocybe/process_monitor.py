@@ -351,6 +351,66 @@ DEFAULT_RULES: list[dict[str, Any]] = [
         },
     },
     {
+        "id": "lsass_memory_dump",
+        "title": "Dump de la mémoire LSASS (vol d'identifiants)",
+        "weight": 90,
+        "mitre": ["T1003.001"],
+        "description": "comsvcs MiniDump / procdump sur lsass : quasi jamais légitime.",
+        "match": {
+            "cmdline|regex": [
+                r"(?i)comsvcs(\.dll)?[\s,]+#?(minidump|24)\b",
+                r"(?i)\bprocdump(64)?(\.exe)?\s+.*\blsass(\.exe)?\b",
+                r"(?i)\bsqldumper(\.exe)?\s+.*\b0x0110\b",
+            ]
+        },
+    },
+    {
+        "id": "event_log_cleared",
+        "title": "Effacement des journaux d'événements",
+        "weight": 70,
+        "mitre": ["T1070.001"],
+        "match": {
+            "cmdline|regex": [
+                r"(?i)\bwevtutil(\.exe)?\s+(cl|clear-log)\b",
+                r"(?i)\bclear-eventlog\b",
+                r"(?i)\bremove-eventlog\b",
+            ]
+        },
+    },
+    {
+        "id": "schtask_user_writable_payload",
+        "title": "Tâche planifiée qui lance un binaire d'un dossier modifiable",
+        "weight": 55,
+        "mitre": ["T1053.005"],
+        "match": {
+            "cmdline|regex": [
+                r"(?i)\bschtasks(\.exe)?\s+.*/create\b.*/tr\s+.*"
+                r"(\\|/)(users(\\|/)public|appdata|temp|programdata|downloads)(\\|/)"
+            ]
+        },
+    },
+    {
+        "id": "psexec_service",
+        "title": "Service PsExec (exécution à distance / mouvement latéral)",
+        "weight": 50,
+        "mitre": ["T1021.002", "T1569.002"],
+        "description": "Utilisé aussi par les admins : pèse surtout corroboré.",
+        "match": {"name": ["psexesvc.exe", "paexec.exe", "remcomsvc.exe"]},
+    },
+    {
+        "id": "registry_run_key",
+        "title": "Ajout d'une clé de démarrage automatique (Run/RunOnce)",
+        "weight": 40,
+        "mitre": ["T1547.001"],
+        "description": "Fréquent en légitime (installeurs) : signal sous le seuil seul.",
+        "match": {
+            "cmdline|regex": [
+                r"(?i)\breg(\.exe)?\s+add\s+.*\\currentversion\\run(once)?\b",
+                r"(?i)set-itemproperty\s+.*\\currentversion\\run(once)?\b",
+            ]
+        },
+    },
+    {
         "id": "ai_agent_spawns_shell",
         "title": "Agent / runtime IA qui lance un shell",
         "weight": 15,

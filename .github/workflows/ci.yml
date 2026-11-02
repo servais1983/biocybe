@@ -108,6 +108,20 @@ jobs:
         # sur fichiers baselinés -> incidents corrélés, audit, CLI.
         run: python scripts/validate_inflammation.py
 
+      - name: MITRE ATT&CK coverage (non-regression de detection)
+        # Rejoue un corpus de telemetrie synthetique dans les vraies regles
+        # + le vrai moteur ; exit 1 si une technique ne donne plus le
+        # resultat attendu. Publie la couche ATT&CK Navigator en artefact.
+        run: biocybe coverage --navigator attack-layer.json
+
+      - name: Upload ATT&CK Navigator layer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attack-navigator-layer
+          path: attack-layer.json
+          if-no-files-found: ignore
+
   # ---------- Security audit ----------
   security:
     name: Security audit

@@ -365,6 +365,7 @@ inflammation:
   habituation_floor: 0.1      # un signal ne pese jamais moins de 10 % (anti-contournement)
   strong_signal_weight: 60    # signaux >= ce poids (IOC haute confiance)...
   strong_habituation_floor: 0.5  # ...ne descendent jamais sous 50 % de leur poids
+  critical_signal_weight: 90  # signal seul >= 90 (apres tolerance) -> systemique direct
   temporal_correlation: true  # anomalies hote -> incident actif le + recent
   # Apprentissage (automatique) : `biocybe incidents mark <ID> --as false_positive`
   # rend la signature EXACTE (type + exe/IOC/dossier, jamais un PID) moins

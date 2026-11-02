@@ -323,6 +323,13 @@ class InflammationConfig:
     habituation_floor: float = 0.1
     strong_signal_weight: float = 60.0
     strong_habituation_floor: float = 0.5
+    # Signal critique : un signal dont le poids EFFECTIF (après tolérance
+    # apprise) atteint ce seuil rend son incident systémique immédiatement,
+    # sans attendre de corroboration. Sans lui, aucun signal seul (max 100)
+    # ne pouvait atteindre le seuil systémique (120) : une suppression des
+    # copies de sauvegarde ou une rafale de chiffrement restait « locale »
+    # (trou mis en évidence par `biocybe coverage`). 0 = désactivé.
+    critical_signal_weight: float = 90.0
     default_host_factor: float = 0.35
     temporal_correlation: bool = True  # signaux sans entité → incident ouvert le + récent
     max_entities: int = 10_000
@@ -596,6 +603,8 @@ class InflammationEngine:
         incident.updated_at = now
         new_sev = LEVEL_SYSTEMIC if level >= cfg.systemic_threshold else LEVEL_LOCAL
         if host_level >= cfg.systemic_threshold:
+            new_sev = LEVEL_SYSTEMIC
+        if cfg.critical_signal_weight and signal.weight * tol >= cfg.critical_signal_weight:
             new_sev = LEVEL_SYSTEMIC
         if _LEVEL_RANK[new_sev] > _LEVEL_RANK[incident.severity]:
             incident.severity = new_sev

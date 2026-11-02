@@ -2320,6 +2320,23 @@ def cmd_incidents_tolerance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """Mesure la couverture MITRE par rejeu de télémétrie synthétique."""
+    from .coverage import format_report, run_coverage, write_navigator
+    from .process_monitor import load_rules
+
+    report = run_coverage(rules=load_rules(args.rules or []))
+    if args.navigator:
+        path = write_navigator(report, args.navigator)
+        print(f"Couche ATT&CK Navigator écrite : {path}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(format_report(report))
+    # Exit 1 si un cas ne donne plus le résultat attendu (régression de détection)
+    return 1 if report["regressions"] else 0
+
+
 def cmd_procmon_rules(args: argparse.Namespace) -> int:
     """Liste les règles de télémétrie processus chargées."""
     from .process_monitor import load_rules
@@ -3263,6 +3280,15 @@ def _build_parser() -> argparse.ArgumentParser:
     mem_forget.add_argument("--type", required=True)
     mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
 
+    # ---------------- coverage (mesure MITRE ATT&CK) ------------------------
+    cov_p = subparsers.add_parser(
+        "coverage",
+        help="Mesure la couverture MITRE ATT&CK par rejeu (exit 1 si regression)",
+    )
+    cov_p.add_argument("--json", action="store_true")
+    cov_p.add_argument("--navigator", metavar="FICHIER", help="Exporte une couche ATT&CK Navigator")
+    cov_p.add_argument("--rules", action="append", help="Regles procmon YAML additionnelles")
+
     # ---------------- procmon (télémétrie processus) ------------------------
     pm_p = subparsers.add_parser(
         "procmon", help="Telemetrie processus : regles sur creation de processus + parent"
@@ -3505,6 +3531,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_mark(args)
         if args.memory_command == "forget":
             return cmd_memory_forget(args)
+    if args.command == "coverage":
+        return cmd_coverage(args)
     if args.command == "procmon":
         if args.procmon_command == "scan":
             return cmd_procmon_scan(args)
