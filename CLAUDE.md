@@ -40,6 +40,8 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/biocybe/process_monitor.py` — **télémétrie processus** : créations de processus + parent + cmdline (polling psutil), règles Sigma-lite (9 livrées : T1490 shadow copies, webshell, macro, PowerShell encodé, LOLBins, curl|sh, exec /tmp, secrets, agent IA→shell), YAML extensible. Alimente l'inflammation. `--procmon`, `biocybe procmon {scan,rules}`. Détection seule
 - `src/biocybe/process_sources.py` — sources **temps réel** pour procmon : proc connector netlink (Linux, noyau, root) + Sysmon Event ID 1 (Windows). `procmon.source: auto` (repli polling avec warning). Mesuré : polling 0/50 vs netlink 50/50 sur processus éphémères
 - `src/biocybe/inflammation/` — **système inflammatoire** (Danger Theory) : corrèle les signaux de toutes les cellules (watcher, regen, netmon, bus T-cell/macrophage) en incidents (niveau par entité à décroissance, co-stimulation, accoutumance, fusion, MITRE). Actif par défaut dans le daemon, observation pure ; NK opt-in sur systémique corroboré. `biocybe incidents {list,show}`. Validation `scripts/validate_inflammation.py`
+- `src/biocybe/inflammation/feedback.py` — **apprentissage** : `incidents mark --as false_positive|true_positive` → tolérance ciblée par signature exacte (jamais PID, plancher x0.1) / mémoire TP (x1.25, l'emporte). `incidents tolerance`. Rechargé à chaud
+- `src/biocybe/coverage.py` — **couverture MITRE mesurée** par rejeu de télémétrie synthétique (19 cas, gaps inclus). `biocybe coverage [--navigator f.json]`, exit 1 si régression, en CI. Mesure : 14/19 incident (5 systémiques), 2 non observables (T1055, T1071.004)
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique
 - `src/biocybe/audit.py` — **Audit log immuable** (JSONL append-only + chaîne SHA-256 anti-tampering)
@@ -190,6 +192,7 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | **Mémoire immunitaire** | ✅ | `ImmuneMemory` SQLite : recall instantané (réponse secondaire), suppression FP confirmés, renforcement confiance récurrence, persistance cross-session. Intégrée scanner. CLI `memory {stats,recall,recent,mark,forget}`. 16 tests + smoke réel |
 | **Système inflammatoire** | ✅ | Corrélation multi-cellules en incidents (Danger Theory) : décroissance, co-stimulation, accoutumance, fusion, précurseurs, MITRE. Daemon + audit + notify + Prometheus + CLI `incidents`. 34 tests + validation réelle 15/15 |
 | **Télémétrie processus** | ✅ | ProcessMonitor + règles Sigma-lite, corrélé à l'inflammation, 38 tests (dont vrai process psutil), daemon réel validé. Plancher d'accoutumance anti-contournement |
+| **Couverture mesurée + apprentissage** | ✅ | `biocybe coverage` 53 % → 74 % (critical_signal_weight + 5 règles), tolérance/mémoire apprises, dashboard Incidents autonome (sans CDN) |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |
 
 ### Ce qui a été livré en Phase 1
@@ -245,7 +248,9 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
 - Inflammation : les poids par signal sont dans `inflammation/signals.py`
   (un seul endroit). Une règle YARA `low` (ex. EICAR, poids 25) n'ouvre PAS
   d'incident seule — voulu. Le dashboard n'affiche pas encore les incidents
-  (le JSONL `db/incidents/incidents.jsonl` est prêt à être lu).
+  — ✅ fait (onglet Incidents).
+- Après toute modif de règle/moteur : `biocybe coverage` (exit 1 = régression).
+  Si la couverture PROGRESSE, mettre à jour `expected` dans le corpus.
 - `ruff` n'est pas épinglé en CI : depuis ruff 0.16, `ruff format` formate
   aussi les blocs de code Python des `.md` sous `src/`. Les README des
   modules héritage ont été reformatés pour rester verts.

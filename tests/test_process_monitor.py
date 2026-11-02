@@ -368,3 +368,51 @@ def test_daemon_builder(monkeypatch):
     assert len(notified) == 1  # seule la règle forte (90) notifie directement
     assert notified[0].severity.value == "critical"
     assert eng.stats["signals_received"] == 2
+
+
+@pytest.mark.parametrize(
+    ("event", "rule_id"),
+    [
+        (
+            _ev(name="rundll32.exe", cmdline="rundll32 C:/W/comsvcs.dll, MiniDump 640 l.dmp full"),
+            "lsass_memory_dump",
+        ),
+        (_ev(name="procdump64.exe", cmdline="procdump64 -ma lsass.exe d.dmp"), "lsass_memory_dump"),
+        (_ev(name="wevtutil.exe", cmdline="wevtutil.exe cl Security"), "event_log_cleared"),
+        (
+            _ev(name="powershell.exe", cmdline="powershell Clear-EventLog -LogName System"),
+            "event_log_cleared",
+        ),
+        (
+            _ev(name="schtasks.exe", cmdline="schtasks /create /tn U /tr C:/Users/Public/u.exe"),
+            "schtask_user_writable_payload",
+        ),
+        (_ev(name="PSEXESVC.exe"), "psexec_service"),
+        (
+            _ev(
+                name="reg.exe",
+                cmdline=r"reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            ),
+            "registry_run_key",
+        ),
+    ],
+)
+def test_new_rules_true_positive(event, rule_id):
+    assert rule_id in _matching_ids(event)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        _ev(name="wevtutil.exe", cmdline="wevtutil qe Security /c:5"),
+        _ev(
+            name="schtasks.exe", cmdline=r"schtasks /create /tn B /tr C:\Program Files\Veeam\a.exe"
+        ),
+        _ev(name="procdump.exe", cmdline="procdump -ma notepad.exe"),
+        _ev(
+            name="reg.exe", cmdline=r"reg query HKLM\Software\Microsoft\Windows\CurrentVersion\Run"
+        ),
+    ],
+)
+def test_new_rules_no_false_positive(event):
+    assert _matching_ids(event) == set()

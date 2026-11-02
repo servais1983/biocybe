@@ -25,6 +25,14 @@ from .engine import (
     file_entity,
     host_entity,
 )
+from .feedback import (
+    VERDICT_FALSE_POSITIVE,
+    VERDICT_TRUE_POSITIVE,
+    FeedbackStore,
+    ToleranceModel,
+    feedback_path_for,
+    signal_signature,
+)
 from .signals import (
     from_cell_message,
     from_connection_record,
@@ -43,13 +51,18 @@ __all__ = [
     "TRANSITION_ESCALATED",
     "TRANSITION_OPENED",
     "TRANSITION_RESOLVED",
+    "VERDICT_FALSE_POSITIVE",
+    "VERDICT_TRUE_POSITIVE",
     "DangerSignal",
+    "FeedbackStore",
     "Incident",
     "IncidentStore",
     "InflammationCell",
     "InflammationConfig",
     "InflammationEngine",
+    "ToleranceModel",
     "dir_entity",
+    "feedback_path_for",
     "file_entity",
     "from_cell_message",
     "from_connection_record",
@@ -57,6 +70,7 @@ __all__ = [
     "from_regen_event",
     "from_watch_event",
     "host_entity",
+    "signal_signature",
 ]
 
 

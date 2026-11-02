@@ -31,6 +31,7 @@ class DashboardConfig:
     audit_path: str = "logs/audit.jsonl"
     signatures_db_path: str = "db/signatures"
     memory_db_path: str = "db/memory/immune_memory.db"
+    incidents_path: str = "db/incidents/incidents.jsonl"
     # Combien d'entrées récentes afficher dans les tables
     recent_limit: int = 200
     # Seuil staleness des feeds (s) — repris de la Phase 3.g
@@ -276,6 +277,85 @@ class DashboardData:
         }
 
     # ------------------------------------------------------------------
+    # Incidents corrélés (système inflammatoire)
+    # ------------------------------------------------------------------
+
+    def incidents_summary(self) -> dict[str, Any]:
+        """Agrège le journal d'incidents (dernier snapshot par incident)."""
+        empty = {
+            "exists": False,
+            "total": 0,
+            "open": 0,
+            "open_systemic": 0,
+            "by_status": {},
+            "by_kind": {},
+            "by_mitre": {},
+            "table": [],
+            "latest_systemic": None,
+        }
+        if not Path(self.config.incidents_path).exists():
+            return empty
+        try:
+            from ..inflammation import IncidentStore
+
+            incidents = list(IncidentStore(self.config.incidents_path).load_latest().values())
+        except Exception as exc:
+            logger.warning("dashboard: incidents illisibles: %s", exc)
+            return {**empty, "exists": True}
+
+        by_status: Counter[str] = Counter(i.get("status", "?") for i in incidents)
+        by_kind: Counter[str] = Counter()
+        by_mitre: Counter[str] = Counter()
+        for inc in incidents:
+            by_kind.update(inc.get("kinds") or [])
+            by_mitre.update(inc.get("mitre") or [])
+        open_inc = [i for i in incidents if i.get("status") == "open"]
+        systemic_open = [i for i in open_inc if i.get("severity") == "systemic"]
+
+        # Ouverts d'abord (systémiques en tête), puis les plus récents
+        def _order(i: dict) -> tuple:
+            return (
+                i.get("status") != "open",
+                i.get("severity") != "systemic",
+                -(i.get("updated_at") or 0),
+            )
+
+        table = [
+            {
+                "incident_id": i.get("incident_id"),
+                "status": i.get("status"),
+                "severity": i.get("severity"),
+                "peak_level": round(float(i.get("peak_level") or 0), 1),
+                "signals": i.get("signals_total", 0),
+                "kinds": ", ".join(i.get("kinds") or []),
+                "mitre": ", ".join(i.get("mitre") or []),
+                "disposition": i.get("disposition") or "—",
+                "opened_at": _fmt_ts(i.get("opened_at")),
+                "updated_at": _fmt_ts(i.get("updated_at")),
+            }
+            for i in sorted(incidents, key=_order)[: self.config.recent_limit]
+        ]
+        latest = max(systemic_open, key=lambda i: i.get("updated_at") or 0, default=None)
+        return {
+            "exists": True,
+            "total": len(incidents),
+            "open": len(open_inc),
+            "open_systemic": len(systemic_open),
+            "by_status": dict(by_status),
+            "by_kind": dict(by_kind.most_common(15)),
+            "by_mitre": dict(by_mitre.most_common(20)),
+            "table": table,
+            "latest_systemic": (
+                {
+                    "incident_id": latest.get("incident_id"),
+                    "explanation": latest.get("explanation", ""),
+                }
+                if latest
+                else None
+            ),
+        }
+
+    # ------------------------------------------------------------------
     # KPIs d'overview
     # ------------------------------------------------------------------
 
@@ -284,6 +364,7 @@ class DashboardData:
         q = self.quarantine_summary()
         a = self.audit_summary()
         i = self.intel_summary()
+        inc = self.incidents_summary()
 
         # Sévérité dominante en quarantaine (pour pastille de couleur)
         worst_severity = "none"
@@ -300,6 +381,8 @@ class DashboardData:
             "intel_total_iocs": i["lookup_total"],
             "intel_any_stale": i["any_stale"],
             "intel_all_missing": i["all_missing"],
+            "incidents_open": inc["open"],
+            "incidents_open_systemic": inc["open_systemic"],
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -310,7 +393,19 @@ class DashboardData:
             "audit": self.audit_summary(),
             "intel": self.intel_summary(),
             "memory": self.memory_summary(),
+            "incidents": self.incidents_summary(),
         }
+
+
+def _fmt_ts(ts: Any) -> str:
+    if not ts:
+        return "—"
+    try:
+        from datetime import datetime
+
+        return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        return str(ts)
 
 
 def _truncate_details(details: dict[str, Any], max_len: int = 160) -> str:

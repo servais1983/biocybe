@@ -784,6 +784,22 @@ def _build_inflammation_from_config(config: dict, notify_mgr):
         logger.error("config.inflammation invalide (%s) — moteur désactivé", exc)
         return None
     engine = InflammationEngine(engine_cfg, store=IncidentStore(store_path))
+    # Apprentissage : tolérance (FP) / mémoire (TP) tirées des incidents qualifiés
+    try:
+        from .inflammation import FeedbackStore, ToleranceModel, feedback_path_for
+
+        engine.feedback_store = FeedbackStore(feedback_path_for(store_path))
+        engine.feedback_mtime = engine.feedback_store.mtime()
+        model = ToleranceModel.from_paths(store_path)
+        engine.set_tolerance(model)
+        if model.entries():
+            logger.info(
+                "Tolérance apprise : %d signature(s) (FP tolérés / TP renforcés)",
+                len(model.entries()),
+            )
+    except Exception as exc:
+        logger.error("inflammation: modèle de tolérance non chargé (%s)", exc)
+    engine.store_path = store_path
     engine.subscribe(
         _make_incident_handler(
             notify_mgr,
@@ -793,6 +809,22 @@ def _build_inflammation_from_config(config: dict, notify_mgr):
         )
     )
     return engine
+
+
+def _maybe_reload_tolerance(engine) -> bool:
+    """Recharge la tolérance apprise si une qualification a été ajoutée."""
+    fb = getattr(engine, "feedback_store", None)
+    if fb is None:
+        return False
+    mtime = fb.mtime()
+    if mtime == getattr(engine, "feedback_mtime", 0.0):
+        return False
+    from .inflammation import ToleranceModel
+
+    engine.set_tolerance(ToleranceModel.from_paths(engine.store_path))
+    engine.feedback_mtime = mtime
+    logger.info("Tolérance apprise rechargée (nouvelle qualification analyste)")
+    return True
 
 
 def _make_incident_handler(notify_mgr, *, nk_cell, level_systemic, transition_resolved):
@@ -1881,6 +1913,7 @@ def cmd_dashboard_serve(args: argparse.Namespace) -> int:
         quarantine_dir=args.quarantine_dir,
         audit_path=args.audit_path,
         signatures_db_path=args.db_path,
+        incidents_path=getattr(args, "incidents_path", DEFAULT_INCIDENTS_PATH),
     )
     try:
         from .dashboard.app import DashboardUnavailable, serve_dashboard
@@ -2205,6 +2238,7 @@ def cmd_incidents_list(args: argparse.Namespace) -> int:
             f"  {inc['incident_id']}  [{sev}] {inc.get('status', '?'):<8} {opened}  "
             f"pic={inc.get('peak_level', 0):>5.0f}  signaux={inc.get('signals_total', 0):>3}  "
             f"{','.join(inc.get('kinds') or [])}  MITRE={','.join(inc.get('mitre') or []) or '-'}"
+            + (f"  [{inc['disposition']}]" if inc.get("disposition") else "")
         )
     # Code retour exploitable en supervision : 2 = systémique ouvert, 1 = local ouvert
     open_inc = [i for i in incidents if i.get("status") == "open"]
@@ -2230,6 +2264,77 @@ def cmd_incidents_show(args: argparse.Namespace) -> int:
         if inc.get("merged_into"):
             print(f"  (fusionné dans {inc['merged_into']})")
     return 0
+
+
+def _resolve_incident(store: str, ident: str) -> dict | None:
+    incidents = {i["incident_id"]: i for i in _load_incidents(store)}
+    if ident in incidents:
+        return incidents[ident]
+    matches = [k for k in incidents if k.endswith(ident)]
+    return incidents[matches[0]] if len(matches) == 1 else None
+
+
+def cmd_incidents_mark(args: argparse.Namespace) -> int:
+    """Qualification analyste : faux positif (tolérance) / vrai positif (mémoire)."""
+    from .audit import audit as _audit
+    from .inflammation import FeedbackStore, ToleranceModel, feedback_path_for
+
+    inc = _resolve_incident(args.store, args.incident_id)
+    if inc is None:
+        print(f"Incident introuvable : {args.incident_id}", file=sys.stderr)
+        return 1
+    analyst = args.analyst or os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    rec = FeedbackStore(feedback_path_for(args.store)).mark(
+        inc["incident_id"], args.verdict, analyst=analyst, notes=args.notes or ""
+    )
+    _audit(
+        "incident_marked",
+        actor=analyst or "analyst",
+        outcome=args.verdict,
+        details={"incident_id": inc["incident_id"], "kinds": inc.get("kinds"), **rec},
+    )
+    model = ToleranceModel.from_paths(args.store)
+    sigs = [e for e in model.entries() if e["false_positives"] or e["true_positives"]]
+    label = "faux positif" if args.verdict == "false_positive" else "vrai positif"
+    print(f"{inc['incident_id']} qualifié {label}. Signatures apprises : {len(sigs)}")
+    for e in sigs:
+        print(f"  x{e['factor']:<5} {e['signature'][:110]}")
+    print("Le daemon recharge la tolérance automatiquement (< 10 s).")
+    return 0
+
+
+def cmd_incidents_tolerance(args: argparse.Namespace) -> int:
+    """Affiche ce que le moteur a appris des qualifications."""
+    from .inflammation import ToleranceModel
+
+    entries = ToleranceModel.from_paths(args.store).entries()
+    if args.json:
+        print(json.dumps(entries, indent=2, ensure_ascii=False))
+        return 0
+    print(f"Signatures apprises : {len(entries)}")
+    for e in entries:
+        print(
+            f"  x{e['factor']:<5} FP={e['false_positives']} TP={e['true_positives']}  "
+            f"{e['signature'][:110]}"
+        )
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """Mesure la couverture MITRE par rejeu de télémétrie synthétique."""
+    from .coverage import format_report, run_coverage, write_navigator
+    from .process_monitor import load_rules
+
+    report = run_coverage(rules=load_rules(args.rules or []))
+    if args.navigator:
+        path = write_navigator(report, args.navigator)
+        print(f"Couche ATT&CK Navigator écrite : {path}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(format_report(report))
+    # Exit 1 si un cas ne donne plus le résultat attendu (régression de détection)
+    return 1 if report["regressions"] else 0
 
 
 def cmd_procmon_rules(args: argparse.Namespace) -> int:
@@ -2517,6 +2622,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             if inflammation is not None and now - last_inflammation_tick >= 10:
                 try:
                     inflammation.tick()  # décroissance + résolution des incidents
+                    _maybe_reload_tolerance(inflammation)
                 except Exception as exc:
                     logger.error("inflammation tick a échoué : %s", exc)
                 last_inflammation_tick = now
@@ -3174,6 +3280,15 @@ def _build_parser() -> argparse.ArgumentParser:
     mem_forget.add_argument("--type", required=True)
     mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
 
+    # ---------------- coverage (mesure MITRE ATT&CK) ------------------------
+    cov_p = subparsers.add_parser(
+        "coverage",
+        help="Mesure la couverture MITRE ATT&CK par rejeu (exit 1 si regression)",
+    )
+    cov_p.add_argument("--json", action="store_true")
+    cov_p.add_argument("--navigator", metavar="FICHIER", help="Exporte une couche ATT&CK Navigator")
+    cov_p.add_argument("--rules", action="append", help="Regles procmon YAML additionnelles")
+
     # ---------------- procmon (télémétrie processus) ------------------------
     pm_p = subparsers.add_parser(
         "procmon", help="Telemetrie processus : regles sur creation de processus + parent"
@@ -3201,6 +3316,19 @@ def _build_parser() -> argparse.ArgumentParser:
     inc_list.add_argument("--limit", type=int, default=50)
     inc_list.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
     inc_list.add_argument("--json", action="store_true")
+    inc_mark = inc_sub.add_parser(
+        "mark", help="Qualifie un incident : faux positif (tolerance) / vrai positif (memoire)"
+    )
+    inc_mark.add_argument("incident_id", help="ID complet ou suffixe unique")
+    inc_mark.add_argument(
+        "--as", dest="verdict", required=True, choices=["false_positive", "true_positive"]
+    )
+    inc_mark.add_argument("--notes", default="")
+    inc_mark.add_argument("--analyst", default="")
+    inc_mark.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
+    inc_tol = inc_sub.add_parser("tolerance", help="Ce que le moteur a appris des qualifications")
+    inc_tol.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
+    inc_tol.add_argument("--json", action="store_true")
     inc_show = inc_sub.add_parser("show", help="Chronologie explicable d'un incident")
     inc_show.add_argument("incident_id", help="ID complet ou suffixe unique")
     inc_show.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
@@ -3262,6 +3390,9 @@ def _build_parser() -> argparse.ArgumentParser:
     dash_serve.add_argument("--host", default="127.0.0.1", help="Bind host (defaut 127.0.0.1)")
     dash_serve.add_argument("--port", type=int, default=8050, help="Port (defaut 8050)")
     dash_serve.add_argument("--quarantine-dir", default="quarantine", help="Dossier quarantaine")
+    dash_serve.add_argument(
+        "--incidents-path", default=DEFAULT_INCIDENTS_PATH, help="Journal des incidents"
+    )
     dash_serve.add_argument(
         "--audit-path", default="logs/audit.jsonl", help="Chemin de l'audit log"
     )
@@ -3400,6 +3531,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_mark(args)
         if args.memory_command == "forget":
             return cmd_memory_forget(args)
+    if args.command == "coverage":
+        return cmd_coverage(args)
     if args.command == "procmon":
         if args.procmon_command == "scan":
             return cmd_procmon_scan(args)
@@ -3410,6 +3543,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_incidents_list(args)
         if args.incidents_command == "show":
             return cmd_incidents_show(args)
+        if args.incidents_command == "mark":
+            return cmd_incidents_mark(args)
+        if args.incidents_command == "tolerance":
+            return cmd_incidents_tolerance(args)
     if args.command == "nk":
         if args.nk_command == "respond":
             return cmd_nk_respond(args)

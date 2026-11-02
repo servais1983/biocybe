@@ -5,6 +5,54 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Couverture MITRE ATT&CK mesurée par rejeu (`biocybe coverage`)
+
+`src/biocybe/coverage.py` rejoue un corpus de 19 cas de télémétrie
+**synthétique** (décrite, jamais exécutée) dans les vraies règles procmon et
+le vrai moteur inflammatoire. Résultat par technique : systémique / local /
+vu sous le seuil / non détecté / **non observable** (capteur absent). Le
+corpus inclut volontairement des techniques non couvertes. Export couche
+ATT&CK Navigator (`--navigator`), exit 1 si régression : ajouté à la CI.
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Incident (systémique + local) | 10/19 (53 %) | **14/19 (74 %)** |
+| dont systémique | 2 | **5** |
+| Non détecté (pas de règle) | 5 | **0** |
+| Non observable (pas de capteur) | 2 | 2 (T1055 injection, T1071.004 DNS) |
+
+Ce que la mesure a corrigé :
+- **Défaut de conception** : aucun signal seul (max 100) ne pouvait
+  atteindre le seuil systémique (120) — suppression des copies de
+  sauvegarde (T1490) et rafale de chiffrement (T1486) restaient « locales ».
+  Nouveau `critical_signal_weight` (90, après tolérance apprise) : systémique
+  direct. La NK exige toujours >= 2 types de signaux pour agir.
+- **5 règles procmon** : dump LSASS (T1003.001, 90), effacement des journaux
+  (T1070.001, 70), tâche planifiée vers dossier modifiable (T1053.005, 55),
+  service PsExec (T1021.002, 50), clé Run (T1547.001, 40 — signal faible
+  seul). Vrais positifs ET absence de faux positifs proches testés.
+
+Limite : mesure de la logique de détection/corrélation, pas des capteurs
+(validés à part) ; la mesure contre de vraies techniques se fait en labo
+isolé.
+
+### Apprentissage depuis les incidents qualifiés
+
+`biocybe incidents mark <ID> --as false_positive|true_positive` : tolérance
+ciblée par signature exacte (x0.5 par FP, plancher x0.1) ou mémoire
+renforcée (x1.25 par TP, l'emporte). Pas de tolérance sans entité stable,
+facteur visible dans la chronologie, qualification auditée, rechargement à
+chaud. `biocybe incidents tolerance`.
+
+### Dashboard : onglet Incidents + thème autonome
+
+Onglet Incidents (bandeau, dernier systémique expliqué, graphes statut /
+signaux / MITRE, table), KPI en tête. Le thème était chargé depuis un CDN :
+sur un réseau SOC isolé la page s'affichait sans style — feuille locale
+`dashboard/assets/biocybe.css`, CDN optionnel (`BIOCYBE_DASHBOARD_THEME_URL`).
+Vérifié en Chromium : 0 requête externe, 0 erreur JS.
+
+
 ### Télémétrie processus temps réel : plus de trou de polling
 
 Le polling psutil (2 s) ratait tout processus éphémère — le profil exact

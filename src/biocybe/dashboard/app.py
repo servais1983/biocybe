@@ -24,6 +24,7 @@ installé.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from .data import DashboardConfig, DashboardData
 
@@ -62,10 +63,17 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
     config = config or DashboardConfig()
     data = DashboardData(config)
 
+    # Thème : feuille locale `assets/biocybe.css` (servie par Dash, aucun accès
+    # Internet requis — un SOC est souvent isolé). Un thème CDN peut être
+    # ajouté par-dessus via BIOCYBE_DASHBOARD_THEME_URL (ex. bootswatch).
+    import os
+
+    theme_url = os.environ.get("BIOCYBE_DASHBOARD_THEME_URL", "").strip()
     app = Dash(
         __name__,
         title="BioCybe SOC",
-        external_stylesheets=[dbc.themes.DARKLY],
+        external_stylesheets=[theme_url] if theme_url else [],
+        assets_folder=str(Path(__file__).parent / "assets"),
         update_title=None,
     )
 
@@ -143,13 +151,14 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
             html.Div(id="kpi-row", className="d-flex flex-wrap my-2"),
             dbc.Tabs(
                 [
+                    dbc.Tab(label="Incidents", tab_id="tab-incidents"),
                     dbc.Tab(label="Quarantaine", tab_id="tab-quarantine"),
                     dbc.Tab(label="Audit", tab_id="tab-audit"),
                     dbc.Tab(label="Threat Intel", tab_id="tab-intel"),
                     dbc.Tab(label="Mémoire", tab_id="tab-memory"),
                 ],
                 id="tabs",
-                active_tab="tab-quarantine",
+                active_tab="tab-incidents",
             ),
             html.Div(id="tab-content", className="mt-3"),
         ],
@@ -172,7 +181,15 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
             if o["intel_any_stale"]
             else ("aucun feed" if o["intel_all_missing"] else "feeds frais")
         )
+        n_sys = o["incidents_open_systemic"]
+        inc_color = "#b00020" if n_sys else ("#ef6c00" if o["incidents_open"] else "#2e7d32")
         return [
+            _kpi_card(
+                "Incidents ouverts",
+                o["incidents_open"],
+                inc_color,
+                f"{n_sys} systémique(s)" if n_sys else "aucun systémique",
+            ),
             _kpi_card(
                 "Quarantaine",
                 o["quarantine_total"],
@@ -195,7 +212,80 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
             return _render_intel()
         if active_tab == "tab-memory":
             return _render_memory()
-        return _render_quarantine()
+        if active_tab == "tab-quarantine":
+            return _render_quarantine()
+        return _render_incidents()
+
+    def _render_incidents():
+        inc = data.incidents_summary()
+        if not inc["exists"]:
+            return dbc.Alert(
+                "Aucun incident enregistré. Le système inflammatoire tourne dans le "
+                "daemon (inflammation.enabled, actif par défaut) et écrit dans "
+                f"{data.config.incidents_path}.",
+                color="secondary",
+            )
+        if inc["open_systemic"]:
+            banner = dbc.Alert(
+                f"{inc['open_systemic']} incident(s) SYSTÉMIQUE(S) ouvert(s) — "
+                f"{inc['open']} ouvert(s) au total",
+                color="danger",
+            )
+        elif inc["open"]:
+            banner = dbc.Alert(f"{inc['open']} incident(s) local(aux) ouvert(s)", color="warning")
+        else:
+            banner = dbc.Alert(f"Calme — {inc['total']} incident(s) résolu(s)", color="success")
+        blocks = [banner]
+        if inc["latest_systemic"]:
+            blocks.append(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.H6(
+                                f"Dernier incident systémique : "
+                                f"{inc['latest_systemic']['incident_id']}"
+                            ),
+                            html.Pre(
+                                inc["latest_systemic"]["explanation"],
+                                style={"whiteSpace": "pre-wrap", "fontSize": "0.75rem"},
+                            ),
+                        ]
+                    ),
+                    className="mb-3",
+                )
+            )
+        blocks.append(
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Graph(figure=_bar(inc["by_status"], "Par statut", "#42a5f5")), md=3
+                    ),
+                    dbc.Col(
+                        dcc.Graph(figure=_bar(inc["by_kind"], "Types de signaux", "#ef5350")), md=5
+                    ),
+                    dbc.Col(
+                        dcc.Graph(figure=_bar(inc["by_mitre"], "MITRE ATT&CK", "#ab47bc")), md=4
+                    ),
+                ]
+            )
+        )
+        cols = [
+            "incident_id",
+            "status",
+            "severity",
+            "peak_level",
+            "signals",
+            "kinds",
+            "mitre",
+            "disposition",
+            "opened_at",
+            "updated_at",
+        ]
+        blocks += [
+            html.H5("Incidents (ouverts d'abord) — détail : biocybe incidents show <ID>"),
+            _table(inc["table"], cols),
+        ]
+        return html.Div(blocks)
 
     def _render_quarantine():
         q = data.quarantine_summary()

@@ -365,7 +365,13 @@ inflammation:
   habituation_floor: 0.1      # un signal ne pese jamais moins de 10 % (anti-contournement)
   strong_signal_weight: 60    # signaux >= ce poids (IOC haute confiance)...
   strong_habituation_floor: 0.5  # ...ne descendent jamais sous 50 % de leur poids
+  critical_signal_weight: 90  # signal seul >= 90 (apres tolerance) -> systemique direct
   temporal_correlation: true  # anomalies hote -> incident actif le + recent
+  # Apprentissage (automatique) : `biocybe incidents mark <ID> --as false_positive`
+  # rend la signature EXACTE (type + exe/IOC/dossier, jamais un PID) moins
+  # sensible (x0.5 par FP, plancher x0.1, jamais 0) ; `--as true_positive` la
+  # renforce (x1.25 par TP, max x1.5) et l'emporte sur les FP. Rechargé a chaud.
+  # Journal : dispositions.jsonl a cote de store_path. `incidents tolerance`.
   nk_on_systemic: false       # true = relaie les PIDs d'un incident systemique
                               # CORRELE (>= 2 types de signaux) a la cellule NK
                               # (garde-fous NK inchanges : enabled/dry_run/...)
