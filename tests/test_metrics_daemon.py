@@ -150,3 +150,17 @@ def test_build_metrics_server_via_cli_port():
             assert resp.status == 200
     finally:
         s.stop()
+
+
+def test_collector_inflammation_snapshot():
+    from biocybe.inflammation import DangerSignal, InflammationEngine
+    from biocybe.metrics_daemon import DaemonMetricsServer
+
+    eng = InflammationEngine(host="h")
+    eng.ingest(DangerSignal("file_malware", "w", 70, entities=("file:/a",)))
+    eng.ingest(DangerSignal("network_ioc", "n", 80, entities=("file:/a",)))
+    body = _render(DaemonMetricsServer(inflammation_fn=eng.snapshot))
+    assert 'biocybe_incidents_open{severity="systemic"} 1.0' in body
+    assert 'biocybe_incidents_open{severity="local"} 0.0' in body
+    assert 'biocybe_inflammation_events_total{event="incidents_opened"} 1.0' in body
+    assert "biocybe_inflammation_host_level" in body

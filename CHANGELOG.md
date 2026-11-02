@@ -5,6 +5,44 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Système inflammatoire : corrélation multi-cellules en incidents (Danger Theory)
+
+Jusqu'ici chaque cellule alertait **seule** : le watcher sur un fichier, le
+netmon sur une connexion C2, la régénération sur une rafale de drift, le
+lymphocyte T sur une anomalie. Un SOC recevait 4 alertes sans lien.
+
+`src/biocybe/inflammation/` relie ces signaux en **incidents corrélés** :
+
+- **Niveau de danger par entité** (fichier, PID, IOC, dossier, hôte) à
+  décroissance exponentielle (demi-vie 15 min) ; seuils local (50) /
+  systémique (120) / résolution (10, hystérésis).
+- **Co-stimulation** : un type de signal *nouveau* sur une entité pèse
+  +50 % (fichier malveillant PUIS C2 depuis ce même exe = kill chain).
+- **Accoutumance** : un signal répété du même type pèse de moins en moins
+  (une anomalie CPU durable ne déclenche pas seule la « fièvre »).
+- **Corrélation par entités partagées** (le chemin d'un fichier détecté ==
+  l'exe d'un process vu par netmon), **fusion** d'incidents reliés,
+  **précurseurs** sous le seuil rattachés à la chronologie, corrélation
+  temporelle (marquée comme telle) pour les anomalies hôte.
+- **Explicable** : chronologie, contribution de chaque signal, facteurs,
+  MITRE ATT&CK (T1105, T1071, T1486, T1565.001, T1571 — uniquement ce que
+  le signal établit).
+- **Daemon** : branché sur watcher, régénération, netmon et bus (T-cell,
+  macrophages) ; transitions → audit immuable + notification
+  (`EventKind.INCIDENT`, WARNING/CRITICAL/INFO) + journal JSONL.
+- **NK opt-in** (`inflammation.nk_on_systemic`) : seulement sur incident
+  systémique corroboré par ≥ 2 types de signaux, une fois par incident,
+  garde-fous NK inchangés (désactivée + dry-run par défaut).
+- **CLI** `biocybe incidents list` (exit 0/1/2 pour la supervision) et
+  `biocybe incidents show <ID>`.
+- **Prometheus** : `biocybe_inflammation_host_level`,
+  `biocybe_incidents_open{severity}`, `biocybe_inflammation_events_total`.
+- 34 tests unitaires + `scripts/validate_inflammation.py` (15 checks réels,
+  ajouté à la CI). La validation réelle a montré qu'un EICAR seul (règle
+  `low`) reste un précurseur : il n'ouvre l'incident — directement
+  systémique — qu'une fois corroboré par la connexion C2 de ce même exe.
+
+
 ### Correctif production : fenêtre aveugle au démarrage du daemon (~30s → ~1-2s)
 
 Défaut découvert en test réel (dépôt d'un EICAR à chaud pendant le boot) :

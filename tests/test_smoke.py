@@ -94,3 +94,11 @@ def test_cellmessage_roundtrip():
     assert d["type"] == "alert"
     assert d["source"] == "test"
     assert d["payload"] == {"x": 1}
+
+
+def test_import_inflammation_without_heavy_deps():
+    # Le moteur de corrélation est pur stdlib : doit toujours s'importer.
+    from biocybe.inflammation import DangerSignal, InflammationEngine
+
+    eng = InflammationEngine(host="smoke")
+    assert eng.ingest(DangerSignal("x", "smoke", 10, entities=("file:/a",))) is None

@@ -34,6 +34,7 @@ class DaemonMetricsServer:
       - `nk_counts_fn() -> dict[str,int] | None` (NKCell.action_counts)
       - `netmon_iocs_fn() -> int | None`
       - `memory_stats_fn() -> dict | None` (ImmuneMemory.stats())
+      - `inflammation_fn() -> dict | None` (InflammationEngine.snapshot())
       - `started_at` : timestamp de démarrage du daemon (uptime)
     """
 
@@ -44,12 +45,14 @@ class DaemonMetricsServer:
         nk_counts_fn: Callable[[], dict[str, int] | None] | None = None,
         netmon_iocs_fn: Callable[[], int | None] | None = None,
         memory_stats_fn: Callable[[], dict | None] | None = None,
+        inflammation_fn: Callable[[], dict | None] | None = None,
         started_at: float | None = None,
     ):
         self.watcher_stats_fn = watcher_stats_fn
         self.nk_counts_fn = nk_counts_fn
         self.netmon_iocs_fn = netmon_iocs_fn
         self.memory_stats_fn = memory_stats_fn
+        self.inflammation_fn = inflammation_fn
         self.started_at = started_at or time.time()
         self._httpd = None
         self._registry = None
@@ -138,6 +141,42 @@ class DaemonMetricsServer:
                         for disp, n in by_disp.items():
                             fam2.add_metric([str(disp)], float(n))
                         yield fam2
+
+                # Système inflammatoire (corrélation multi-cellules)
+                if server.inflammation_fn is not None:
+                    snap = _safe_call(server.inflammation_fn)
+                    if isinstance(snap, dict):
+                        lvl = GaugeMetricFamily(
+                            "biocybe_inflammation_host_level",
+                            "Niveau de danger agrégé de l'hôte (décroissance exponentielle)",
+                        )
+                        lvl.add_metric([], float(snap.get("host_level", 0.0)))
+                        yield lvl
+                        open_g = GaugeMetricFamily(
+                            "biocybe_incidents_open",
+                            "Incidents corrélés ouverts, par sévérité",
+                            labels=["severity"],
+                        )
+                        total_open = int(snap.get("open_incidents", 0))
+                        systemic = int(snap.get("open_systemic", 0))
+                        open_g.add_metric(["systemic"], float(systemic))
+                        open_g.add_metric(["local"], float(total_open - systemic))
+                        yield open_g
+                        cnt = GaugeMetricFamily(
+                            "biocybe_inflammation_events_total",
+                            "Compteurs du moteur inflammatoire depuis le démarrage",
+                            labels=["event"],
+                        )
+                        for key in (
+                            "signals_received",
+                            "signals_subthreshold",
+                            "incidents_opened",
+                            "incidents_escalated",
+                            "incidents_resolved",
+                            "incidents_merged",
+                        ):
+                            cnt.add_metric([key], float(snap.get(key, 0)))
+                        yield cnt
 
         return _DaemonCollector()
 

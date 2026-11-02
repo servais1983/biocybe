@@ -633,7 +633,9 @@ def _build_notifier_manager_from_config(config: dict):
     return mgr, len(mgr.notifiers)
 
 
-def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_args=None):
+def _build_network_monitor_service_from_config(
+    config: dict, notify_mgr, *, cli_args=None, inflammation=None
+):
     """Construit un NetworkMonitorService (Phase 3.h) depuis config.netmon.
 
     Le callback on_match :
@@ -681,6 +683,17 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
         }
         # 1) Audit immuable (no-op si audit non activé)
         _audit("network_ioc_detected", actor="netmon", outcome="alert", details=details)
+
+        # 1 bis) Signal de danger -> moteur inflammatoire (corrélation)
+        if inflammation is not None:
+            try:
+                from .inflammation import from_connection_record
+
+                sig = from_connection_record(record)
+                if sig is not None:
+                    inflammation.ingest(sig)
+            except Exception as exc:
+                logger.error("netmon: ingestion inflammation a échoué : %s", exc)
 
         # 2) Notification sortante
         if notify_mgr is not None:
@@ -732,6 +745,133 @@ def _build_network_monitor_service_from_config(config: dict, notify_mgr, *, cli_
     return service
 
 
+DEFAULT_INCIDENTS_PATH = "db/incidents/incidents.jsonl"
+
+
+def _build_inflammation_from_config(config: dict, notify_mgr):
+    """Construit le moteur inflammatoire (corrélation multi-cellules).
+
+    Activé par défaut (config.inflammation.enabled, défaut True) : il ne
+    fait qu'observer et corréler — aucune action destructive. Les
+    transitions d'incident sont :
+      1. journalisées (JSONL lisible par `biocybe incidents`) ;
+      2. auditées (chaîne immuable, si audit actif) ;
+      3. notifiées (WARNING local, CRITICAL systémique, INFO résolu) ;
+      4. optionnellement relayées à la cellule NK pour les incidents
+         SYSTÉMIQUES corrélés (opt-in `nk_on_systemic`, garde-fous NK
+         inchangés : enabled/dry_run/protégés/rate-limit).
+    """
+    inf_cfg = dict((config or {}).get("inflammation") or {})
+    if not inf_cfg.pop("enabled", True):
+        return None
+    try:
+        from .inflammation import (
+            LEVEL_SYSTEMIC,
+            TRANSITION_RESOLVED,
+            IncidentStore,
+            InflammationConfig,
+            InflammationEngine,
+        )
+    except Exception as exc:
+        logger.warning("Moteur inflammatoire indisponible : %s", exc)
+        return None
+
+    store_path = inf_cfg.pop("store_path", DEFAULT_INCIDENTS_PATH)
+    nk_on_systemic = bool(inf_cfg.pop("nk_on_systemic", False))
+    try:
+        engine_cfg = InflammationConfig.from_dict(inf_cfg)
+    except ValueError as exc:
+        logger.error("config.inflammation invalide (%s) — moteur désactivé", exc)
+        return None
+    engine = InflammationEngine(engine_cfg, store=IncidentStore(store_path))
+    engine.subscribe(
+        _make_incident_handler(
+            notify_mgr,
+            nk_cell=_build_nk_cell_from_config(config) if nk_on_systemic else None,
+            level_systemic=LEVEL_SYSTEMIC,
+            transition_resolved=TRANSITION_RESOLVED,
+        )
+    )
+    return engine
+
+
+def _make_incident_handler(notify_mgr, *, nk_cell, level_systemic, transition_resolved):
+    """Callback (incident, transition) : audit + notify + NK optionnelle."""
+    from .audit import audit as _audit
+
+    nk_handled: set[str] = set()
+
+    def _on_incident(incident, transition: str) -> None:
+        summary = {
+            "incident_id": incident.incident_id,
+            "transition": transition,
+            "severity": incident.severity,
+            "level": round(incident.current_level, 1),
+            "peak_level": round(incident.peak_level, 1),
+            "kinds": incident.kinds,
+            "sources": incident.sources,
+            "mitre": incident.mitre,
+            "entities": sorted(incident.entities)[:20],
+            "signals_total": incident.signals_total,
+        }
+        _audit(
+            f"incident_{transition}",
+            actor="inflammation",
+            outcome="resolved" if transition == transition_resolved else "alert",
+            details=summary,
+        )
+
+        if notify_mgr is not None:
+            try:
+                from .notify import Event, EventKind, Severity
+
+                if transition == transition_resolved:
+                    sev = Severity.INFO
+                elif incident.severity == level_systemic:
+                    sev = Severity.CRITICAL
+                else:
+                    sev = Severity.WARNING
+                label = "SYSTÉMIQUE" if incident.severity == level_systemic else "local"
+                notify_mgr.notify(
+                    Event(
+                        kind=EventKind.INCIDENT,
+                        severity=sev,
+                        title=f"Incident {incident.incident_id} {transition} ({label}) — "
+                        f"{', '.join(incident.kinds)}",
+                        message=incident.explain(),
+                        source="inflammation",
+                        payload=summary,
+                    )
+                )
+            except Exception as exc:
+                logger.error("inflammation: notify a échoué : %s", exc)
+
+        # Réponse NK sur incident systémique CORRÉLÉ (>= 2 types de signaux).
+        # Un seul type de signal = pas de corroboration -> pas d'action.
+        if (
+            nk_cell is not None
+            and transition != transition_resolved
+            and incident.severity == level_systemic
+            and len(incident.kinds) >= 2
+            and incident.incident_id not in nk_handled
+        ):
+            nk_handled.add(incident.incident_id)
+            for pid in incident.pids:
+                try:
+                    decision = nk_cell.evaluate(
+                        pid=pid,
+                        process_name=f"incident:{incident.incident_id}",
+                        confidence=95,
+                        reason=f"incident systémique {incident.incident_id} "
+                        f"({', '.join(incident.kinds)})",
+                    )
+                    nk_cell.respond(decision)
+                except Exception as exc:
+                    logger.error("inflammation: réponse NK (pid %s) a échoué : %s", pid, exc)
+
+    return _on_incident
+
+
 def _build_immune_memory_from_config(config: dict):
     """Construit une ImmuneMemory depuis config.memory, ou None si désactivée."""
     mem_cfg = (config or {}).get("memory") or {}
@@ -777,7 +917,9 @@ def _build_self_healer_from_config(config: dict):
     }
 
 
-def _build_daemon_metrics_server(config: dict, *, cli_args, watcher, netmon_service, immune_memory):
+def _build_daemon_metrics_server(
+    config: dict, *, cli_args, watcher, netmon_service, immune_memory, inflammation=None
+):
     """Construit + démarre le serveur /metrics du daemon, ou None si désactivé.
 
     Activation : config.metrics.daemon_enabled OU flag CLI --metrics-port.
@@ -806,6 +948,7 @@ def _build_daemon_metrics_server(config: dict, *, cli_args, watcher, netmon_serv
         ),
         netmon_iocs_fn=((lambda: netmon_service.ioc_total) if netmon_service is not None else None),
         memory_stats_fn=((lambda: immune_memory.stats()) if immune_memory is not None else None),
+        inflammation_fn=((lambda: inflammation.snapshot()) if inflammation is not None else None),
     )
     if server.start(port=port):
         return server
@@ -1970,6 +2113,87 @@ def cmd_quarantine_restore(args: argparse.Namespace) -> int:
 # --- Sous-commande par défaut : daemon -----------------------------------
 
 
+def _load_incidents(path: str) -> list[dict]:
+    from .inflammation import IncidentStore
+
+    return list(IncidentStore(path).load_latest().values())
+
+
+def cmd_incidents_list(args: argparse.Namespace) -> int:
+    """Liste les incidents corrélés (ouverts par défaut, --all pour tout)."""
+    incidents = _load_incidents(args.store)
+    if not args.all:
+        incidents = [i for i in incidents if i.get("status") == "open"]
+    incidents = incidents[-args.limit :]
+    if args.json:
+        for inc in incidents:
+            inc.pop("explanation", None)
+        print(json.dumps(incidents, indent=2, ensure_ascii=False))
+        return 0
+    scope = "tous" if args.all else "ouverts"
+    print(f"Incidents corrélés ({scope}) : {len(incidents)}")
+    for inc in incidents:
+        opened = datetime.fromtimestamp(inc.get("opened_at") or 0).strftime("%Y-%m-%d %H:%M:%S")
+        sev = "SYST" if inc.get("severity") == "systemic" else "loc "
+        print(
+            f"  {inc['incident_id']}  [{sev}] {inc.get('status', '?'):<8} {opened}  "
+            f"pic={inc.get('peak_level', 0):>5.0f}  signaux={inc.get('signals_total', 0):>3}  "
+            f"{','.join(inc.get('kinds') or [])}  MITRE={','.join(inc.get('mitre') or []) or '-'}"
+        )
+    # Code retour exploitable en supervision : 2 = systémique ouvert, 1 = local ouvert
+    open_inc = [i for i in incidents if i.get("status") == "open"]
+    if any(i.get("severity") == "systemic" for i in open_inc):
+        return 2
+    return 1 if open_inc else 0
+
+
+def cmd_incidents_show(args: argparse.Namespace) -> int:
+    """Détail explicable d'un incident (chronologie, co-stimulation, MITRE)."""
+    incidents = {i["incident_id"]: i for i in _load_incidents(args.store)}
+    inc = incidents.get(args.incident_id)
+    if inc is None:
+        matches = [k for k in incidents if k.endswith(args.incident_id)]
+        inc = incidents[matches[0]] if len(matches) == 1 else None
+    if inc is None:
+        print(f"Incident introuvable : {args.incident_id}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(inc, indent=2, ensure_ascii=False))
+    else:
+        print(inc.get("explanation") or json.dumps(inc, indent=2, ensure_ascii=False))
+        if inc.get("merged_into"):
+            print(f"  (fusionné dans {inc['merged_into']})")
+    return 0
+
+
+def _inflammation_watch_callback(engine):
+    """Callback watcher -> signal file_malware (None si moteur absent)."""
+    if engine is None:
+        return None
+    from .inflammation import from_watch_event
+
+    def _cb(ev) -> None:
+        sig = from_watch_event(ev)
+        if sig is not None:
+            engine.ingest(sig)
+
+    return _cb
+
+
+def _inflammation_regen_callback(engine):
+    """Callback régénération -> signal integrity_drift / ransomware_burst."""
+    if engine is None:
+        return None
+    from .inflammation import from_regen_event
+
+    def _cb(kind: str, payload: dict) -> None:
+        sig = from_regen_event(kind, payload)
+        if sig is not None:
+            engine.ingest(sig)
+
+    return _cb
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Démarre le noyau et les cellules en continu jusqu'à Ctrl+C."""
     global _core, _running
@@ -2030,6 +2254,17 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             mode,
         )
 
+    # Moteur inflammatoire : corrèle les signaux de TOUTES les cellules en
+    # incidents (fichier + C2 + ransomware + anomalies). Observation pure.
+    inflammation = _build_inflammation_from_config(config, notify_mgr)
+    if inflammation is not None:
+        logger.info(
+            "Moteur inflammatoire actif (seuils local=%.0f systémique=%.0f, demi-vie %.0fs)",
+            inflammation.config.local_threshold,
+            inflammation.config.systemic_threshold,
+            inflammation.config.half_life_seconds,
+        )
+
     # Watcher temps-réel — démarré AVANT le noyau pour une protection immédiate
     watcher = None
     watch_dirs: list[str] = list(getattr(args, "watch", []) or [])
@@ -2054,6 +2289,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             regen_auto_heal=regen_cfg["auto_heal"] if regen_cfg else False,
             regen_burst_threshold=regen_cfg["burst_threshold"] if regen_cfg else 5,
             regen_burst_window=regen_cfg["burst_window"] if regen_cfg else 10.0,
+            callback=_inflammation_watch_callback(inflammation),
+            regen_callback=_inflammation_regen_callback(inflammation),
         )
         watcher.start()
         rt_mode = (
@@ -2077,7 +2314,9 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         )
 
     # Network monitor live (Phase 3.h) — dépend de notify_mgr (déjà construit)
-    netmon_service = _build_network_monitor_service_from_config(config, notify_mgr, cli_args=args)
+    netmon_service = _build_network_monitor_service_from_config(
+        config, notify_mgr, cli_args=args, inflammation=inflammation
+    )
     if netmon_service is not None:
         netmon_service.start()
         logger.info(
@@ -2094,6 +2333,14 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     _core = _init_core(config)
     if not _core:
         return 1
+    if inflammation is not None:
+        # Écoute du bus : anomalies lymphocytes T / macrophages -> signaux
+        try:
+            from .inflammation import InflammationCell
+
+            _core.register_cell(InflammationCell(inflammation))
+        except Exception as exc:
+            logger.error("InflammationCell non enregistrée : %s", exc)
     logger.info("Démarrage du système BioCybe (cellules d'analyse)...")
     _core.start()
 
@@ -2104,6 +2351,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         watcher=watcher,
         netmon_service=netmon_service,
         immune_memory=immune_memory,
+        inflammation=inflammation,
     )
 
     print(_BANNER)
@@ -2134,6 +2382,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             f"Auto-régénération : {regen_cfg['healer'].stats()['baseline_total']} fichiers "
             f"protégés, mode {mode}"
         )
+    if inflammation is not None:
+        print(
+            "Système inflammatoire : corrélation multi-cellules active "
+            "(`biocybe incidents list` pour suivre)"
+        )
     if metrics_server is not None:
         print("Métriques Prometheus du daemon exposées (watcher/NK/netmon/mémoire)")
     print("Appuyez sur Ctrl+C pour arrêter le système")
@@ -2145,8 +2398,15 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         netmon_reload_interval = 300
         last_save = time.time()
         last_netmon_reload = time.time()
+        last_inflammation_tick = time.time()
         while _running:
             now = time.time()
+            if inflammation is not None and now - last_inflammation_tick >= 10:
+                try:
+                    inflammation.tick()  # décroissance + résolution des incidents
+                except Exception as exc:
+                    logger.error("inflammation tick a échoué : %s", exc)
+                last_inflammation_tick = now
             if now - last_save >= interval:
                 _core.save_status()
                 last_save = now
@@ -2777,6 +3037,24 @@ def _build_parser() -> argparse.ArgumentParser:
     mem_forget.add_argument("--type", required=True)
     mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
 
+    # ---------------- incidents (système inflammatoire) ---------------------
+    inc_p = subparsers.add_parser(
+        "incidents",
+        help="Incidents correles par le systeme inflammatoire (multi-cellules)",
+    )
+    inc_sub = inc_p.add_subparsers(dest="incidents_command", required=True)
+    inc_list = inc_sub.add_parser(
+        "list", help="Liste les incidents (exit 0=calme, 1=local, 2=systemique ouvert)"
+    )
+    inc_list.add_argument("--all", action="store_true", help="Inclut resolus/fusionnes")
+    inc_list.add_argument("--limit", type=int, default=50)
+    inc_list.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
+    inc_list.add_argument("--json", action="store_true")
+    inc_show = inc_sub.add_parser("show", help="Chronologie explicable d'un incident")
+    inc_show.add_argument("incident_id", help="ID complet ou suffixe unique")
+    inc_show.add_argument("--store", default=DEFAULT_INCIDENTS_PATH)
+    inc_show.add_argument("--json", action="store_true")
+
     # ---------------- nk (Cellules NK — réponse active) ---------------------
     nk_p = subparsers.add_parser(
         "nk",
@@ -2971,6 +3249,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_mark(args)
         if args.memory_command == "forget":
             return cmd_memory_forget(args)
+    if args.command == "incidents":
+        if args.incidents_command == "list":
+            return cmd_incidents_list(args)
+        if args.incidents_command == "show":
+            return cmd_incidents_show(args)
     if args.command == "nk":
         if args.nk_command == "respond":
             return cmd_nk_respond(args)

@@ -346,3 +346,23 @@ regeneration:
   manifest: "db/regeneration/baseline.json"
   burst_threshold: 5          # N fichiers proteges modifies...
   burst_window: 10            # ...en T secondes = ransomware suspecte
+
+# Systeme inflammatoire — correlation des signaux de danger entre cellules
+# (Danger Theory). Relie watcher + netmon + regeneration + lymphocytes T +
+# macrophages en INCIDENTS correles, explicables et mappes MITRE ATT&CK.
+# Observation pure : aucune action destructive par defaut. Actif par defaut.
+#   biocybe incidents list       # exit 0=calme, 1=local, 2=systemique
+#   biocybe incidents show <ID>  # chronologie + co-stimulation + MITRE
+inflammation:
+  enabled: true
+  store_path: "db/incidents/incidents.jsonl"
+  local_threshold: 50         # niveau d'ouverture d'un incident local
+  systemic_threshold: 120     # niveau de reponse systemique (CRITICAL)
+  resolve_threshold: 10       # hysteresis : resolution sous ce niveau
+  half_life_seconds: 900      # decroissance du danger (15 min)
+  costim_bonus: 0.5           # +50 % par type de signal distinct deja present
+  habituation: true           # accoutumance aux signaux repetitifs
+  temporal_correlation: true  # anomalies hote -> incident actif le + recent
+  nk_on_systemic: false       # true = relaie les PIDs d'un incident systemique
+                              # CORRELE (>= 2 types de signaux) a la cellule NK
+                              # (garde-fous NK inchanges : enabled/dry_run/...)
