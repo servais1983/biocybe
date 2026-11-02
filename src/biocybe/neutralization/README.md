@@ -38,19 +38,19 @@ Ce module représente principalement :
 from neutralization.core import NeutralizationEngine
 
 # Initialisation du moteur de neutralisation
-neutralizer = NeutralizationEngine(config_path='config/neutralization.yaml')
+neutralizer = NeutralizationEngine(config_path="config/neutralization.yaml")
 
 # Suppression d'une menace
-neutralizer.remove_threat('path/to/quarantined_file')
+neutralizer.remove_threat("path/to/quarantined_file")
 
 # Réparation du système
 repair_report = neutralizer.repair_system()
 
 # Restauration depuis sauvegarde
-neutralizer.restore_from_backup(file_path='path/to/corrupted_file')
+neutralizer.restore_from_backup(file_path="path/to/corrupted_file")
 
 # Application de correctifs
-neutralizer.apply_patches(vulnerability_id='CVE-2025-1234')
+neutralizer.apply_patches(vulnerability_id="CVE-2025-1234")
 ```
 
 ## Stratégies de neutralisation

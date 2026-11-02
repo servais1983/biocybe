@@ -77,6 +77,7 @@ class EventKind(str, Enum):
     QUARANTINE_RESTORED = "quarantine_restored"
     BEHAVIORAL_ANOMALY = "behavioral_anomaly"
     INTEL_UPDATE = "intel_update"
+    INCIDENT = "incident"  # incident corrélé (moteur inflammatoire)
     SYSTEM = "system"
 
 

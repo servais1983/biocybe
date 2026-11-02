@@ -36,16 +36,16 @@ Ce module représente principalement :
 from isolation.core import IsolationEngine
 
 # Initialisation du moteur d'isolation
-isolator = IsolationEngine(config_path='config/isolation.yaml')
+isolator = IsolationEngine(config_path="config/isolation.yaml")
 
 # Mise en quarantaine d'un fichier
-isolator.quarantine_file('path/to/malicious_file')
+isolator.quarantine_file("path/to/malicious_file")
 
 # Isolation d'un processus
 isolator.isolate_process(pid=1234)
 
 # Isolation réseau
-isolator.restrict_network_access(ip_address='192.168.1.100')
+isolator.restrict_network_access(ip_address="192.168.1.100")
 ```
 
 ## Stratégies d'isolation

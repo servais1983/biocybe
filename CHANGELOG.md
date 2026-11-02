@@ -5,6 +5,114 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Télémétrie processus temps réel : plus de trou de polling
+
+Le polling psutil (2 s) ratait tout processus éphémère — le profil exact
+d'un one-liner offensif. Nouvelles sources (`src/biocybe/process_sources.py`) :
+
+- **Linux — proc connector netlink** : le noyau pousse chaque `fork`/`exec`
+  (aucune dépendance, pas de module eBPF à compiler ; root requis). Nom, exe
+  et ligne de commande lus dans `/proc` à la réception ; parent conservé même
+  s'il est déjà mort (cache borné). Processus disparu avant lecture →
+  événement **partiel** compté, jamais perdu en silence ; débordement du
+  buffer noyau compté (`overruns`).
+- **Windows — Sysmon Event ID 1** via `wevtutil` : journal durable avec
+  image, ligne de commande, parent ; signet `EventRecordID` (pas de rejeu de
+  l'historique au démarrage, pas de doublon).
+- `procmon.source: auto` (défaut) choisit la meilleure source disponible,
+  sinon repli sur le polling **avec avertissement explicite**. Flag
+  `--procmon-source {auto,poll,netlink,sysmon}`. Les règles ne changent pas.
+- **Mesure réelle** (50 processus éphémères `sh -c ":"` déclenchant une
+  règle) : polling **0/50**, proc connector **50/50**, 0 partiel. Daemon réel
+  en `auto` : netlink sélectionné, processus de quelques ms → incident
+  systémique corrélé.
+- 12 tests, dont un test noyau réel (Linux + root ; SKIP explicite sinon).
+- Limites : netlink exige root ; Sysmon doit être installé et n'est testé
+  qu'avec un `wevtutil` simulé (pas de runner Windows avec Sysmon en CI).
+  eBPF (arguments exacts au moment de l'exec, même si le processus meurt
+  instantanément) reste une amélioration possible.
+
+
+### Télémétrie processus : voir ce qui n'écrit aucun fichier
+
+Signatures, IOC et dérive de fichiers étaient aveugles aux attaques
+*living-off-the-land* et aux agents (humains ou IA) qui enchaînent des
+commandes légitimes. `src/biocybe/process_monitor.py` :
+
+- Observe les **créations de processus** (polling psutil cross-OS, sans
+  driver) avec le **contexte parent** (nom, exe, ligne de commande) ;
+  baseline silencieuse au démarrage, robuste au recyclage de PID.
+- **Règles déclaratives Sigma-lite** (dict/YAML : champs, opérateurs
+  equals/contains/startswith/endswith/regex, négation). 9 règles livrées :
+  suppression des copies de sauvegarde (précurseur ransomware, T1490),
+  bureautique → shell, serveur web → shell (webshell), PowerShell encodé,
+  LOLBins de téléchargement, `curl | sh`, exécution depuis un dossier
+  temporaire, lecture de secrets (SSH/cloud/navigateur), agent IA → shell
+  (informatif, pèse seulement s'il est corroboré). Surcharge/désactivation
+  par YAML (`procmon.rules_paths`, `disabled_rules`).
+- **Corrélation** : chaque match devient un signal `process:<règle>` du
+  moteur inflammatoire ; l'exe partage l'espace de noms du watcher (fichier
+  déposé == fichier exécuté), le PID parent relie les arbres de processus
+  (sauf parents racines).
+- Daemon `--procmon` / `procmon.enabled` (désactivé par défaut), audit
+  `process_rule_matched`, notification directe seulement pour les règles
+  fortes (poids >= 70), anti-tempête par (règle, exe).
+- CLI `biocybe procmon {scan,rules}`.
+- 38 tests, dont l'observation d'un vrai processus enfant via psutil.
+  Validation daemon réel : un binaire lancé depuis un dossier temporaire
+  avec un chemin de clé SSH en argument, depuis le shell d'un agent IA →
+  3 règles → incident SYSTÉMIQUE corrélé (T1059, T1204.002, T1552.001).
+- Limites : polling 2 s (un processus très court peut échapper ; eBPF/ETW
+  à venir), visibilité limitée sans root/admin. Détection uniquement.
+
+### Inflammation : plancher d'accoutumance (anti-contournement)
+
+Faille de conception identifiée en revue : sans plancher, un attaquant
+pouvait inonder une entité de signaux faibles d'un type pour
+« désensibiliser » le moteur, puis faire passer le vrai signal du même type
+à poids quasi nul (95 → ~0,5 après 200 signaux de bruit). Désormais un
+signal ne descend jamais sous 10 % de son poids, et un signal fort
+(>= 60) jamais sous 50 %. Test de non-régression dédié.
+
+
+### Système inflammatoire : corrélation multi-cellules en incidents (Danger Theory)
+
+Jusqu'ici chaque cellule alertait **seule** : le watcher sur un fichier, le
+netmon sur une connexion C2, la régénération sur une rafale de drift, le
+lymphocyte T sur une anomalie. Un SOC recevait 4 alertes sans lien.
+
+`src/biocybe/inflammation/` relie ces signaux en **incidents corrélés** :
+
+- **Niveau de danger par entité** (fichier, PID, IOC, dossier, hôte) à
+  décroissance exponentielle (demi-vie 15 min) ; seuils local (50) /
+  systémique (120) / résolution (10, hystérésis).
+- **Co-stimulation** : un type de signal *nouveau* sur une entité pèse
+  +50 % (fichier malveillant PUIS C2 depuis ce même exe = kill chain).
+- **Accoutumance** : un signal répété du même type pèse de moins en moins
+  (une anomalie CPU durable ne déclenche pas seule la « fièvre »).
+- **Corrélation par entités partagées** (le chemin d'un fichier détecté ==
+  l'exe d'un process vu par netmon), **fusion** d'incidents reliés,
+  **précurseurs** sous le seuil rattachés à la chronologie, corrélation
+  temporelle (marquée comme telle) pour les anomalies hôte.
+- **Explicable** : chronologie, contribution de chaque signal, facteurs,
+  MITRE ATT&CK (T1105, T1071, T1486, T1565.001, T1571 — uniquement ce que
+  le signal établit).
+- **Daemon** : branché sur watcher, régénération, netmon et bus (T-cell,
+  macrophages) ; transitions → audit immuable + notification
+  (`EventKind.INCIDENT`, WARNING/CRITICAL/INFO) + journal JSONL.
+- **NK opt-in** (`inflammation.nk_on_systemic`) : seulement sur incident
+  systémique corroboré par ≥ 2 types de signaux, une fois par incident,
+  garde-fous NK inchangés (désactivée + dry-run par défaut).
+- **CLI** `biocybe incidents list` (exit 0/1/2 pour la supervision) et
+  `biocybe incidents show <ID>`.
+- **Prometheus** : `biocybe_inflammation_host_level`,
+  `biocybe_incidents_open{severity}`, `biocybe_inflammation_events_total`.
+- 34 tests unitaires + `scripts/validate_inflammation.py` (15 checks réels,
+  ajouté à la CI). La validation réelle a montré qu'un EICAR seul (règle
+  `low`) reste un précurseur : il n'ouvre l'incident — directement
+  systémique — qu'une fois corroboré par la connexion C2 de ce même exe.
+
+
 ### Correctif production : fenêtre aveugle au démarrage du daemon (~30s → ~1-2s)
 
 Défaut découvert en test réel (dépôt d'un EICAR à chaud pendant le boot) :

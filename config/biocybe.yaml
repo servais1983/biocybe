@@ -346,3 +346,45 @@ regeneration:
   manifest: "db/regeneration/baseline.json"
   burst_threshold: 5          # N fichiers proteges modifies...
   burst_window: 10            # ...en T secondes = ransomware suspecte
+
+# Systeme inflammatoire — correlation des signaux de danger entre cellules
+# (Danger Theory). Relie watcher + netmon + regeneration + lymphocytes T +
+# macrophages en INCIDENTS correles, explicables et mappes MITRE ATT&CK.
+# Observation pure : aucune action destructive par defaut. Actif par defaut.
+#   biocybe incidents list       # exit 0=calme, 1=local, 2=systemique
+#   biocybe incidents show <ID>  # chronologie + co-stimulation + MITRE
+inflammation:
+  enabled: true
+  store_path: "db/incidents/incidents.jsonl"
+  local_threshold: 50         # niveau d'ouverture d'un incident local
+  systemic_threshold: 120     # niveau de reponse systemique (CRITICAL)
+  resolve_threshold: 10       # hysteresis : resolution sous ce niveau
+  half_life_seconds: 900      # decroissance du danger (15 min)
+  costim_bonus: 0.5           # +50 % par type de signal distinct deja present
+  habituation: true           # accoutumance aux signaux repetitifs
+  habituation_floor: 0.1      # un signal ne pese jamais moins de 10 % (anti-contournement)
+  strong_signal_weight: 60    # signaux >= ce poids (IOC haute confiance)...
+  strong_habituation_floor: 0.5  # ...ne descendent jamais sous 50 % de leur poids
+  temporal_correlation: true  # anomalies hote -> incident actif le + recent
+  nk_on_systemic: false       # true = relaie les PIDs d'un incident systemique
+                              # CORRELE (>= 2 types de signaux) a la cellule NK
+                              # (garde-fous NK inchanges : enabled/dry_run/...)
+
+# Telemetrie processus — voit ce qui n'ecrit aucun fichier : living-off-the-land
+# (PowerShell encode, certutil, vssadmin), webshells, macros, agents IA qui
+# lancent des shells. Creation de processus + contexte PARENT + ligne de
+# commande, evalues par des regles declaratives (Sigma-lite). Les matches
+# alimentent le systeme inflammatoire (correlation) et l'audit.
+# Detection uniquement : aucune action sur les processus (role de la NK).
+#   biocybe procmon rules   # liste les regles
+#   biocybe procmon scan    # evalue les processus en cours (exit 1 si match)
+procmon:
+  enabled: false            # true OU flag CLI --procmon
+  source: auto              # auto | netlink (Linux, noyau, root) | sysmon (Windows,
+                            # Event ID 1) | poll (psutil). auto = temps reel si dispo,
+                            # sinon polling (avertissement explicite dans les logs)
+  interval: 2               # polling (s), mode poll seulement : un process plus
+                            # court peut alors echapper
+  rules_paths: []           # fichiers/dossiers YAML de regles additionnelles
+  disabled_rules: []        # ids de regles livrees a desactiver
+  notify_min_weight: 70     # notif directe seulement pour les regles fortes

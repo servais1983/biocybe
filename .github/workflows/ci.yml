@@ -103,6 +103,11 @@ jobs:
         # devrait passer ; sinon elle est SKIP (jamais un faux PASS).
         run: python scripts/validate_intel_pipeline.py
 
+      - name: Run inflammation (correlation) validation (15 checks réels)
+        # Vrai watcher + vraie règle YARA (EICAR) + vraie rafale de drift
+        # sur fichiers baselinés -> incidents corrélés, audit, CLI.
+        run: python scripts/validate_inflammation.py
+
   # ---------- Security audit ----------
   security:
     name: Security audit

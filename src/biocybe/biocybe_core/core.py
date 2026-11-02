@@ -20,16 +20,32 @@ from typing import Any
 
 import yaml
 
+
 # Configuration du logger
+def _default_log_handlers() -> list[logging.Handler]:
+    """stderr + fichier `biocybe.log` (ou $BIOCYBE_LOG_FILE) si inscriptible.
+
+    Le fichier est ouvert à l'IMPORT : dans un conteneur non-root (cwd non
+    inscriptible) ou en K8s readOnlyRootFilesystem, un FileHandler strict
+    faisait planter jusqu'à `biocybe --help`. On se replie sur stderr seul
+    (que collectent docker/k8s) plutôt que de crasher.
+    """
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    log_file = os.environ.get("BIOCYBE_LOG_FILE", "biocybe.log")
+    if log_file:
+        try:
+            # encoding="utf-8" explicite : sinon cp1252 sur Windows casse
+            # les accents et rend les logs non-parsables pour les SIEM.
+            handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+        except OSError as exc:
+            sys.stderr.write(f"biocybe: log fichier désactivé ({log_file}: {exc})\n")
+    return handlers
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        # encoding="utf-8" explicite : sinon cp1252 sur Windows casse
-        # les accents et rend les logs non-parsables pour les SIEM.
-        logging.FileHandler("biocybe.log", encoding="utf-8"),
-    ],
+    handlers=_default_log_handlers(),
 )
 logger = logging.getLogger("biocybe.core")
 

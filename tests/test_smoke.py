@@ -94,3 +94,28 @@ def test_cellmessage_roundtrip():
     assert d["type"] == "alert"
     assert d["source"] == "test"
     assert d["payload"] == {"x": 1}
+
+
+def test_import_inflammation_without_heavy_deps():
+    # Le moteur de corrélation est pur stdlib : doit toujours s'importer.
+    from biocybe.inflammation import DangerSignal, InflammationEngine
+
+    eng = InflammationEngine(host="smoke")
+    assert eng.ingest(DangerSignal("x", "smoke", 10, entities=("file:/a",))) is None
+
+
+def test_log_file_unwritable_falls_back_to_stderr(tmp_path, monkeypatch):
+    # Régression Docker : cwd non inscriptible -> l'import ne doit pas crasher.
+    import logging
+
+    from biocybe.biocybe_core.core import _default_log_handlers
+
+    monkeypatch.setenv("BIOCYBE_LOG_FILE", str(tmp_path / "absent" / "biocybe.log"))
+    handlers = _default_log_handlers()
+    assert len(handlers) == 1 and isinstance(handlers[0], logging.StreamHandler)
+
+    monkeypatch.setenv("BIOCYBE_LOG_FILE", str(tmp_path / "ok.log"))
+    handlers = _default_log_handlers()
+    assert any(isinstance(h, logging.FileHandler) for h in handlers)
+    for h in handlers:
+        h.close()

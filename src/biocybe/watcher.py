@@ -64,6 +64,11 @@ class WatchEvent:
 # Type alias pour faciliter l'usage côté caller.
 WatchCallback = Callable[[WatchEvent], None]
 
+# Callback régénération : (kind, payload) avec kind = "drift" | "burst".
+# Consommé par le moteur inflammatoire pour corréler drift/rafale ransomware
+# avec les autres signaux (fichier malveillant, C2...).
+RegenCallback = Callable[[str, dict], None]
+
 
 class _ScanHandler(FileSystemEventHandler):
     """Handler watchdog qui empile les chemins à scanner.
@@ -199,6 +204,7 @@ class FileSystemWatcher:
         regen_auto_heal: bool = False,
         regen_burst_threshold: int = 5,
         regen_burst_window: float = 10.0,
+        regen_callback: RegenCallback | None = None,
     ):
         self.directories = [Path(d).resolve() for d in directories]
         self.cell = cell or BCell("realtime_watcher")
@@ -213,7 +219,8 @@ class FileSystemWatcher:
         self.regen_auto_heal = bool(regen_auto_heal)
         self.regen_burst_threshold = int(regen_burst_threshold)
         self.regen_burst_window = float(regen_burst_window)
-        self._regen_window: deque[float] = deque()
+        self._regen_window: deque[tuple[float, str]] = deque()
+        self.regen_callback = regen_callback
         self._regen_lock = threading.Lock()
         self.recursive = recursive
         self.callback = callback
@@ -422,12 +429,15 @@ class FileSystemWatcher:
         self.stats.regen_drift_detected += 1
         now = time.time()
         with self._regen_lock:
-            self._regen_window.append(now)
+            self._regen_window.append((now, key))
             cutoff = now - self.regen_burst_window
-            while self._regen_window and self._regen_window[0] < cutoff:
+            while self._regen_window and self._regen_window[0][0] < cutoff:
                 self._regen_window.popleft()
             burst = len(self._regen_window) >= self.regen_burst_threshold
             window_count = len(self._regen_window)
+            window_paths = [p for _, p in self._regen_window]
+
+        self._fire_regen_callback("drift", {"path": key})
 
         logger.warning(
             "[REGEN] drift sur fichier protégé : %s (%d en %.0fs)",
@@ -438,6 +448,15 @@ class FileSystemWatcher:
 
         if not burst:
             return
+
+        self._fire_regen_callback(
+            "burst",
+            {
+                "window_count": window_count,
+                "paths": window_paths,
+                "auto_heal": self.regen_auto_heal,
+            },
+        )
 
         # Rafale = ransomware suspecté
         try:
@@ -474,6 +493,14 @@ class FileSystemWatcher:
                     self._regen_window.clear()
             except Exception as exc:
                 logger.error("[REGEN] auto-heal a échoué : %s", exc)
+
+    def _fire_regen_callback(self, kind: str, payload: dict) -> None:
+        if self.regen_callback is None:
+            return
+        try:
+            self.regen_callback(kind, payload)
+        except Exception as exc:
+            logger.error("Callback régénération a levé une exception : %s", exc)
 
     def _apply_memory(self, path: str, ev) -> bool:
         """Croise une détection RT avec la mémoire immunitaire.

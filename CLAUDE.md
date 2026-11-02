@@ -37,6 +37,9 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/biocybe/nk_cells/nk_cell.py` — Cellules NK (réponse active : suspend/terminate/kill + isolation réseau), ULTRA-conservateur (dry-run + protégés + audit), `biocybe nk {respond,resume,status}`
 - `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner + watcher + daemon + dashboard (onglet Mémoire), `biocybe memory {stats,recall,recent,mark,forget}`
 - `src/biocybe/intel/rules.py` — import opt-in règles YARA communautaires
+- `src/biocybe/process_monitor.py` — **télémétrie processus** : créations de processus + parent + cmdline (polling psutil), règles Sigma-lite (9 livrées : T1490 shadow copies, webshell, macro, PowerShell encodé, LOLBins, curl|sh, exec /tmp, secrets, agent IA→shell), YAML extensible. Alimente l'inflammation. `--procmon`, `biocybe procmon {scan,rules}`. Détection seule
+- `src/biocybe/process_sources.py` — sources **temps réel** pour procmon : proc connector netlink (Linux, noyau, root) + Sysmon Event ID 1 (Windows). `procmon.source: auto` (repli polling avec warning). Mesuré : polling 0/50 vs netlink 50/50 sur processus éphémères
+- `src/biocybe/inflammation/` — **système inflammatoire** (Danger Theory) : corrèle les signaux de toutes les cellules (watcher, regen, netmon, bus T-cell/macrophage) en incidents (niveau par entité à décroissance, co-stimulation, accoutumance, fusion, MITRE). Actif par défaut dans le daemon, observation pure ; NK opt-in sur systémique corroboré. `biocybe incidents {list,show}`. Validation `scripts/validate_inflammation.py`
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique
 - `src/biocybe/audit.py` — **Audit log immuable** (JSONL append-only + chaîne SHA-256 anti-tampering)
@@ -185,6 +188,8 @@ mode detect-only obligatoire pour évaluation en prod sans risque.
 | **Cellules NK — réponse active** | ✅ | `NKCell` suspend/terminate/kill + isolation réseau. Garde-fous : désactivée+dry-run défaut, process protégés, seuil confiance, anti-PID-recycling, rate-limit, audit. CLI `nk {respond,resume,status}` + auto-respond opt-in sur netmon. 22 tests + smoke test réel (suspend/resume/kill d'un vrai process) |
 | **Validation E2E intel** | ✅ | `scripts/validate_intel_pipeline.py` 35 checks réels (vraie connexion socket), IOCs RFC 5737/2606, 0 mock métier |
 | **Mémoire immunitaire** | ✅ | `ImmuneMemory` SQLite : recall instantané (réponse secondaire), suppression FP confirmés, renforcement confiance récurrence, persistance cross-session. Intégrée scanner. CLI `memory {stats,recall,recent,mark,forget}`. 16 tests + smoke réel |
+| **Système inflammatoire** | ✅ | Corrélation multi-cellules en incidents (Danger Theory) : décroissance, co-stimulation, accoutumance, fusion, précurseurs, MITRE. Daemon + audit + notify + Prometheus + CLI `incidents`. 34 tests + validation réelle 15/15 |
+| **Télémétrie processus** | ✅ | ProcessMonitor + règles Sigma-lite, corrélé à l'inflammation, 38 tests (dont vrai process psutil), daemon réel validé. Plancher d'accoutumance anti-contournement |
 | 3 — Adaptabilité (R&D) | ⏳ | Mémoire immunitaire persistante, swarm P2P, modules expérimentaux |
 
 ### Ce qui a été livré en Phase 1
@@ -230,6 +235,20 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
     offline, jamais masqué).
 
 ## 7. Pièges connus / dette technique
+
+- procmon : en mode `poll` (repli sans root / sans Sysmon) un processus
+  plus court que l'intervalle échappe — 0/50 mesuré. En `netlink` : 50/50.
+  Sysmon n'est testé qu'avec un `wevtutil` simulé (pas de CI Windows+Sysmon). La règle
+  `ai_agent_spawns_shell` matche aussi Claude Code lui-même : c'est voulu
+  (poids 15, sous le seuil seul).
+
+- Inflammation : les poids par signal sont dans `inflammation/signals.py`
+  (un seul endroit). Une règle YARA `low` (ex. EICAR, poids 25) n'ouvre PAS
+  d'incident seule — voulu. Le dashboard n'affiche pas encore les incidents
+  (le JSONL `db/incidents/incidents.jsonl` est prêt à être lu).
+- `ruff` n'est pas épinglé en CI : depuis ruff 0.16, `ruff format` formate
+  aussi les blocs de code Python des `.md` sous `src/`. Les README des
+  modules héritage ont été reformatés pour rester verts.
 
 - ~~Compilation YARA des 748 règles communautaires prend ~1m15 sur
   Windows + Defender actif~~ ✅ **résolu Phase 3.a** : cache
