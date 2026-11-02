@@ -11,8 +11,15 @@ import pickle
 import random
 from collections import deque
 
-import numpy as np
 import yaml
+
+# numpy n'est pas une dépendance du cœur (extra [ml]) : import guardé pour
+# que `import biocybe.learning.reinforcement_learning` ne crashe pas sur
+# une install minimale (cf. tests/test_smoke.py). Requis seulement à l'usage.
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - dépend de l'environnement
+    np = None
 
 # TensorFlow est une dépendance LOURDE et incompatible Python 3.13. Ce
 # module (apprentissage par renforcement / Danger Theory) est un héritage
@@ -34,8 +41,17 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
+def _require_numpy() -> None:
+    """Lève un message clair si numpy n'est pas disponible."""
+    if np is None:
+        raise ImportError(
+            "biocybe.learning.reinforcement_learning nécessite numpy : `pip install biocybe[ml]`."
+        )
+
+
 def _require_tf() -> None:
-    """Lève un message clair si TensorFlow n'est pas disponible."""
+    """Lève un message clair si TensorFlow (ou numpy) n'est pas disponible."""
+    _require_numpy()
     if not _TF_AVAILABLE:
         raise ImportError(
             "biocybe.learning.reinforcement_learning (héritage Danger Theory) "
@@ -71,6 +87,7 @@ class DangerSignals:
 
     def get_state(self):
         """Retourne l'état actuel des signaux de danger sous forme de tableau numpy"""
+        _require_numpy()
         return np.array(list(self.signals.values()), dtype=np.float32)
 
     def get_total_danger(self):
