@@ -468,3 +468,31 @@ def test_bus_cell_routes_anomalies_and_ignores_rest(clock):
     inc = eng.open_incidents()[0]
     assert inc.signals[-1].kind == "behavior_anomaly"
     assert inc.signals[-1].correlation == "temporal"
+
+
+def test_habituation_floor_resists_pre_flooding(engine, clock):
+    """Anti-contournement : un attaquant inonde d'abord une entité de
+    signaux réseau faibles, puis le vrai IOC fort du même type doit garder
+    au moins la moitié de son poids et ouvrir un incident."""
+    for _ in range(200):
+        engine.ingest(DangerSignal("network_ioc", "netmon", 5, entities=("pid:66",)))
+        clock.advance(1)
+    inc = engine.ingest(DangerSignal("network_ioc", "netmon", 95, entities=("pid:66",)))
+    assert inc is not None, "le vrai C2 ne doit pas être rendu invisible par le bruit"
+    assert inc.signals[-1].habituation == pytest.approx(0.5)
+    assert inc.signals[-1].contribution >= 95 * 0.5 - 1e-6
+
+
+def test_habituation_weak_signal_floor(engine, clock):
+    for _ in range(500):
+        engine.ingest(DangerSignal("x", "t", 20, entities=("file:/z",)))
+    last = engine._tissues["file:/z"]
+    assert last.repeats["x"][0] > 100
+    sig = DangerSignal("x", "t", 20, entities=("file:/z",))
+    _, contrib, habit = engine._inflame("file:/z", sig, 1.0, clock())
+    assert habit == pytest.approx(0.1) and contrib == pytest.approx(2.0)
+
+
+def test_habituation_floor_config_validation():
+    with pytest.raises(ValueError):
+        InflammationConfig.from_dict({"habituation_floor": 0.8, "strong_habituation_floor": 0.5})

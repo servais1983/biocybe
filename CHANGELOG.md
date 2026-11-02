@@ -5,6 +5,48 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Télémétrie processus : voir ce qui n'écrit aucun fichier
+
+Signatures, IOC et dérive de fichiers étaient aveugles aux attaques
+*living-off-the-land* et aux agents (humains ou IA) qui enchaînent des
+commandes légitimes. `src/biocybe/process_monitor.py` :
+
+- Observe les **créations de processus** (polling psutil cross-OS, sans
+  driver) avec le **contexte parent** (nom, exe, ligne de commande) ;
+  baseline silencieuse au démarrage, robuste au recyclage de PID.
+- **Règles déclaratives Sigma-lite** (dict/YAML : champs, opérateurs
+  equals/contains/startswith/endswith/regex, négation). 9 règles livrées :
+  suppression des copies de sauvegarde (précurseur ransomware, T1490),
+  bureautique → shell, serveur web → shell (webshell), PowerShell encodé,
+  LOLBins de téléchargement, `curl | sh`, exécution depuis un dossier
+  temporaire, lecture de secrets (SSH/cloud/navigateur), agent IA → shell
+  (informatif, pèse seulement s'il est corroboré). Surcharge/désactivation
+  par YAML (`procmon.rules_paths`, `disabled_rules`).
+- **Corrélation** : chaque match devient un signal `process:<règle>` du
+  moteur inflammatoire ; l'exe partage l'espace de noms du watcher (fichier
+  déposé == fichier exécuté), le PID parent relie les arbres de processus
+  (sauf parents racines).
+- Daemon `--procmon` / `procmon.enabled` (désactivé par défaut), audit
+  `process_rule_matched`, notification directe seulement pour les règles
+  fortes (poids >= 70), anti-tempête par (règle, exe).
+- CLI `biocybe procmon {scan,rules}`.
+- 38 tests, dont l'observation d'un vrai processus enfant via psutil.
+  Validation daemon réel : un binaire lancé depuis un dossier temporaire
+  avec un chemin de clé SSH en argument, depuis le shell d'un agent IA →
+  3 règles → incident SYSTÉMIQUE corrélé (T1059, T1204.002, T1552.001).
+- Limites : polling 2 s (un processus très court peut échapper ; eBPF/ETW
+  à venir), visibilité limitée sans root/admin. Détection uniquement.
+
+### Inflammation : plancher d'accoutumance (anti-contournement)
+
+Faille de conception identifiée en revue : sans plancher, un attaquant
+pouvait inonder une entité de signaux faibles d'un type pour
+« désensibiliser » le moteur, puis faire passer le vrai signal du même type
+à poids quasi nul (95 → ~0,5 après 200 signaux de bruit). Désormais un
+signal ne descend jamais sous 10 % de son poids, et un signal fort
+(>= 60) jamais sous 50 %. Test de non-régression dédié.
+
+
 ### Système inflammatoire : corrélation multi-cellules en incidents (Danger Theory)
 
 Jusqu'ici chaque cellule alertait **seule** : le watcher sur un fichier, le

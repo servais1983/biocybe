@@ -362,6 +362,9 @@ inflammation:
   half_life_seconds: 900      # decroissance du danger (15 min)
   costim_bonus: 0.5           # +50 % par type de signal distinct deja present
   habituation: true           # accoutumance aux signaux repetitifs
+  habituation_floor: 0.1      # un signal ne pese jamais moins de 10 % (anti-contournement)
+  strong_signal_weight: 60    # signaux >= ce poids (IOC haute confiance)...
+  strong_habituation_floor: 0.5  # ...ne descendent jamais sous 50 % de leur poids
   temporal_correlation: true  # anomalies hote -> incident actif le + recent
   nk_on_systemic: false       # true = relaie les PIDs d'un incident systemique
                               # CORRELE (>= 2 types de signaux) a la cellule NK

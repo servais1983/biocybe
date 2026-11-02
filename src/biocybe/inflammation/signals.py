@@ -205,3 +205,37 @@ def from_cell_message(msg_type: str, payload: Any, source: str) -> list[DangerSi
     except Exception as exc:
         logger.debug("from_cell_message: entrée ignorée (%s)", exc)
     return out
+
+
+def from_process_match(match: Any, *, source: str = "procmon") -> DangerSignal | None:
+    """ProcessMatch (télémétrie processus) → signal ``process:<rule_id>``.
+
+    Le kind inclut l'id de règle : deux règles DIFFÉRENTES sur le même
+    processus co-stimulent (ex. « lancé depuis /tmp » + « lit ~/.ssh »).
+    Entités : l'exe (même espace de noms que le watcher → relie « fichier
+    déposé » et « fichier exécuté »), le PID, et le PID parent sauf parent
+    racine (systemd, explorer...) qui fusionnerait tout l'hôte.
+    """
+    try:
+        from ..process_monitor import ROOT_PARENT_NAMES
+
+        ev, rule = match.event, match.rule
+        entities = []
+        if ev.exe:
+            entities.append(file_entity(ev.exe))
+        entities.append(f"pid:{ev.pid}")
+        parent_name = (ev.parent_name or "").lower()
+        if ev.ppid and ev.ppid > 1 and parent_name not in ROOT_PARENT_NAMES:
+            entities.append(f"pid:{ev.ppid}")
+        return DangerSignal(
+            kind=f"process:{rule.rule_id}",
+            source=source,
+            weight=rule.weight,
+            entities=tuple(entities),
+            summary=f"{rule.title} — {ev.name} (pid {ev.pid}) <- {ev.parent_name or '?'}",
+            mitre=tuple(rule.mitre),
+            details={"rule_id": rule.rule_id, **ev.to_dict()},
+        )
+    except Exception as exc:
+        logger.debug("from_process_match: entrée ignorée (%s)", exc)
+        return None

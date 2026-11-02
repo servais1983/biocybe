@@ -872,6 +872,71 @@ def _make_incident_handler(notify_mgr, *, nk_cell, level_systemic, transition_re
     return _on_incident
 
 
+def _build_process_monitor_from_config(
+    config: dict, notify_mgr, *, cli_args=None, inflammation=None
+):
+    """ProcessMonitor (télémétrie processus) depuis config.procmon / --procmon.
+
+    Chaque règle déclenchée :
+      1. audit immuable `process_rule_matched` ;
+      2. signal de danger -> moteur inflammatoire (corrélation) ;
+      3. notification directe seulement pour les règles fortes
+         (poids >= notify_min_weight, défaut 70) : le reste remonte via les
+         incidents corrélés, pour ne pas noyer le SOC.
+    Détection uniquement : aucune action sur les processus.
+    """
+    cfg = (config or {}).get("procmon") or {}
+    if not cfg.get("enabled", False) and not getattr(cli_args, "procmon", False):
+        return None
+    try:
+        from .process_monitor import ProcessMonitor, load_rules
+    except Exception as exc:
+        logger.warning("ProcessMonitor indisponible : %s", exc)
+        return None
+
+    rules = load_rules(cfg.get("rules_paths") or [])
+    disabled = set(cfg.get("disabled_rules") or [])
+    for r in rules:
+        if r.rule_id in disabled:
+            r.enabled = False
+    notify_min = float(cfg.get("notify_min_weight", 70))
+
+    from .audit import audit as _audit
+
+    def _on_match(m) -> None:
+        details = m.to_dict()
+        _audit("process_rule_matched", actor="procmon", outcome="alert", details=details)
+        if inflammation is not None:
+            try:
+                from .inflammation import from_process_match
+
+                sig = from_process_match(m)
+                if sig is not None:
+                    inflammation.ingest(sig)
+            except Exception as exc:
+                logger.error("procmon: ingestion inflammation a échoué : %s", exc)
+        if notify_mgr is not None and m.rule.weight >= notify_min:
+            try:
+                from .notify import Event, EventKind, Severity
+
+                notify_mgr.notify(
+                    Event(
+                        kind=EventKind.REALTIME_DETECTION,
+                        severity=Severity.CRITICAL if m.rule.weight >= 90 else Severity.WARNING,
+                        title=f"Processus suspect : {m.rule.title}",
+                        message=f"{m.event.name} (pid {m.event.pid}) lancé par "
+                        f"{m.event.parent_name or '?'} : {m.event.cmdline[:300]}",
+                        source="procmon",
+                        payload=details,
+                    )
+                )
+            except Exception as exc:
+                logger.error("procmon: notify a échoué : %s", exc)
+
+    interval = float(getattr(cli_args, "procmon_interval", None) or cfg.get("interval", 2.0))
+    return ProcessMonitor(rules, interval=interval, on_match=_on_match)
+
+
 def _build_immune_memory_from_config(config: dict):
     """Construit une ImmuneMemory depuis config.memory, ou None si désactivée."""
     mem_cfg = (config or {}).get("memory") or {}
@@ -2166,6 +2231,41 @@ def cmd_incidents_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_procmon_rules(args: argparse.Namespace) -> int:
+    """Liste les règles de télémétrie processus chargées."""
+    from .process_monitor import load_rules
+
+    rules = load_rules(args.rules or [])
+    if args.json:
+        print(json.dumps([r.to_dict() for r in rules], indent=2, ensure_ascii=False))
+        return 0
+    print(f"Règles de télémétrie processus : {len(rules)}")
+    for r in sorted(rules, key=lambda r: -r.weight):
+        state = "on " if r.enabled else "off"
+        print(
+            f"  [{state}] {r.rule_id:<28} poids={r.weight:>3.0f}  {','.join(r.mitre):<20} {r.title}"
+        )
+    return 0
+
+
+def cmd_procmon_scan(args: argparse.Namespace) -> int:
+    """Évalue les règles sur les processus actuellement en cours (one-shot)."""
+    from .process_monitor import ProcessMonitor, load_rules
+
+    mon = ProcessMonitor(load_rules(args.rules or []))
+    matches = mon.scan_existing_processes()
+    if args.json:
+        print(json.dumps([m.to_dict() for m in matches], indent=2, ensure_ascii=False))
+    else:
+        print(f"Processus suspects : {len(matches)}")
+        for m in matches:
+            print(
+                f"  [{m.rule.weight:>3.0f}] {m.rule.rule_id:<26} pid={m.event.pid:<7} "
+                f"{m.event.name} <- {m.event.parent_name or '?'} | {m.event.cmdline[:120]}"
+            )
+    return 1 if matches else 0
+
+
 def _inflammation_watch_callback(engine):
     """Callback watcher -> signal file_malware (None si moteur absent)."""
     if engine is None:
@@ -2317,6 +2417,13 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     netmon_service = _build_network_monitor_service_from_config(
         config, notify_mgr, cli_args=args, inflammation=inflammation
     )
+    # Télémétrie processus (LOTL, webshells, précurseurs ransomware, agents)
+    procmon = _build_process_monitor_from_config(
+        config, notify_mgr, cli_args=args, inflammation=inflammation
+    )
+    if procmon is not None:
+        procmon.start()
+
     if netmon_service is not None:
         netmon_service.start()
         logger.info(
@@ -2382,6 +2489,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             f"Auto-régénération : {regen_cfg['healer'].stats()['baseline_total']} fichiers "
             f"protégés, mode {mode}"
         )
+    if procmon is not None:
+        print(
+            f"Télémétrie processus : {sum(1 for r in procmon.rules if r.enabled)} règles "
+            "actives (création de processus + contexte parent)"
+        )
     if inflammation is not None:
         print(
             "Système inflammatoire : corrélation multi-cellules active "
@@ -2427,6 +2539,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 pass
         if netmon_service is not None:
             netmon_service.stop()
+        if procmon is not None:
+            procmon.stop()
         if watcher is not None:
             watcher.stop()
         if _core and _core.active:
@@ -2490,6 +2604,20 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="netmon",
         help="Active la surveillance live des connexions sortantes (Phase 3.h). "
         "Sinon utilise netmon.enabled de la config.",
+    )
+    parser.add_argument(
+        "--procmon",
+        action="store_true",
+        dest="procmon",
+        help="Active la télémétrie processus (création + parent + ligne de commande). "
+        "Sinon utilise procmon.enabled de la config.",
+    )
+    parser.add_argument(
+        "--procmon-interval",
+        type=float,
+        default=None,
+        dest="procmon_interval",
+        help="Intervalle de polling de la télémétrie processus (défaut config ou 2s).",
     )
     parser.add_argument(
         "--netmon-interval",
@@ -3037,6 +3165,20 @@ def _build_parser() -> argparse.ArgumentParser:
     mem_forget.add_argument("--type", required=True)
     mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
 
+    # ---------------- procmon (télémétrie processus) ------------------------
+    pm_p = subparsers.add_parser(
+        "procmon", help="Telemetrie processus : regles sur creation de processus + parent"
+    )
+    pm_sub = pm_p.add_subparsers(dest="procmon_command", required=True)
+    pm_scan = pm_sub.add_parser(
+        "scan", help="Evalue les regles sur les processus en cours (exit 1 si match)"
+    )
+    pm_scan.add_argument("--rules", action="append", help="Fichier/dossier YAML de regles en plus")
+    pm_scan.add_argument("--json", action="store_true")
+    pm_rules = pm_sub.add_parser("rules", help="Liste les regles chargees")
+    pm_rules.add_argument("--rules", action="append", help="Fichier/dossier YAML de regles en plus")
+    pm_rules.add_argument("--json", action="store_true")
+
     # ---------------- incidents (système inflammatoire) ---------------------
     inc_p = subparsers.add_parser(
         "incidents",
@@ -3249,6 +3391,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_mark(args)
         if args.memory_command == "forget":
             return cmd_memory_forget(args)
+    if args.command == "procmon":
+        if args.procmon_command == "scan":
+            return cmd_procmon_scan(args)
+        if args.procmon_command == "rules":
+            return cmd_procmon_rules(args)
     if args.command == "incidents":
         if args.incidents_command == "list":
             return cmd_incidents_list(args)

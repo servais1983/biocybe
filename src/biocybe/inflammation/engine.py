@@ -308,6 +308,15 @@ class InflammationConfig:
     # weight / (1 + n_récents). Empêche une source bavarde (anomalie CPU
     # durable, beacon C2 toutes les 5 s) de faire exploser le niveau seule.
     habituation: bool = True
+    # Plancher d'accoutumance (anti-contournement) : sans plancher, un
+    # attaquant peut d'abord inonder une entité de signaux anodins d'un type
+    # pour « désensibiliser » le moteur, puis faire passer le vrai signal du
+    # même type à poids quasi nul. Un signal ne descend jamais sous
+    # `habituation_floor` de son poids, et un signal FORT (>= strong_signal_weight,
+    # ex. IOC haute confiance) jamais sous `strong_habituation_floor`.
+    habituation_floor: float = 0.1
+    strong_signal_weight: float = 60.0
+    strong_habituation_floor: float = 0.5
     default_host_factor: float = 0.35
     temporal_correlation: bool = True  # signaux sans entité → incident ouvert le + récent
     max_entities: int = 10_000
@@ -328,6 +337,10 @@ class InflammationConfig:
             raise ValueError(
                 "inflammation: il faut 0 < resolve_threshold < local_threshold "
                 "<= systemic_threshold"
+            )
+        if not (0.0 <= cfg.habituation_floor <= cfg.strong_habituation_floor <= 1.0):
+            raise ValueError(
+                "inflammation: il faut 0 <= habituation_floor <= strong_habituation_floor <= 1"
             )
         if cfg.half_life_seconds <= 0:
             raise ValueError("inflammation: half_life_seconds doit être > 0")
@@ -590,7 +603,12 @@ class InflammationEngine:
         if cfg.habituation:
             count, last = tissue.repeats.get(signal.kind, (0.0, now))
             count *= 0.5 ** (max(0.0, now - last) / cfg.half_life_seconds)
-            habit = 1.0 / (1.0 + count)
+            floor = (
+                cfg.strong_habituation_floor
+                if signal.weight >= cfg.strong_signal_weight
+                else cfg.habituation_floor
+            )
+            habit = max(floor, 1.0 / (1.0 + count))
             tissue.repeats[signal.kind] = [count + 1.0, now]
 
         contribution = signal.weight * factor * costim * habit
