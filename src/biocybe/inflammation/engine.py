@@ -160,6 +160,7 @@ class SignalContribution:
     details: dict[str, Any]
     correlation: str  # "entity" | "temporal" | "precursor"
     habituation: float = 1.0
+    tolerance: float = 1.0  # appris des incidents qualifiés (<1 FP, >1 TP)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -171,6 +172,7 @@ class SignalContribution:
             "weight": round(self.weight, 2),
             "costim_factor": round(self.costim_factor, 2),
             "habituation": round(self.habituation, 3),
+            "tolerance": round(self.tolerance, 3),
             "contribution": round(self.contribution, 2),
             "entities": list(self.entities),
             "mitre": list(self.mitre),
@@ -245,6 +247,10 @@ class Incident:
             costim = f" x{s.costim_factor:.2f} co-stim" if s.costim_factor > 1.0 else ""
             if s.habituation < 0.99:
                 costim += f" x{s.habituation:.2f} accoutumance"
+            if s.tolerance < 0.99:
+                costim += f" x{s.tolerance:.2f} tolérance (FP appris)"
+            elif s.tolerance > 1.01:
+                costim += f" x{s.tolerance:.2f} mémoire (TP appris)"
             corr = {"temporal": " [corr. temporelle hôte]", "precursor": " [précurseur]"}.get(
                 s.correlation, ""
             )
@@ -365,8 +371,12 @@ class InflammationEngine:
         host: str | None = None,
         clock: Callable[[], float] = time.time,
         store: IncidentStore | None = None,
+        tolerance: Any = None,
     ):
         self.config = config or InflammationConfig()
+        # Modèle appris (feedback analyste) : objet exposant
+        # ``factor(kind, entities) -> float``. None = pas d'apprentissage.
+        self._tolerance = tolerance
         self.host = host_entity(host)
         self._clock = clock
         self._store = store
@@ -384,9 +394,16 @@ class InflammationEngine:
             "incidents_resolved": 0,
             "incidents_merged": 0,
             "callback_errors": 0,
+            "signals_tolerated": 0,
+            "signals_reinforced": 0,
         }
 
     # ---- API publique ---------------------------------------------------
+
+    def set_tolerance(self, tolerance: Any) -> None:
+        """Remplace le modèle de tolérance appris (rechargement à chaud)."""
+        with self._lock:
+            self._tolerance = tolerance
 
     def subscribe(self, callback: IncidentCallback) -> None:
         """Enregistre un callback ``(incident, transition)``."""
@@ -477,12 +494,25 @@ class InflammationEngine:
         signal.timestamp = now
         self.stats["signals_received"] += 1
 
+        # 0) Tolérance / mémoire apprises des incidents qualifiés
+        tol = 1.0
+        if self._tolerance is not None:
+            try:
+                tol = float(self._tolerance.factor(signal.kind, signal.entities))
+            except Exception as exc:  # un modèle cassé ne doit pas aveugler le moteur
+                logger.error("inflammation: tolérance inutilisable (%s) — ignorée", exc)
+                tol = 1.0
+            if tol < 1.0:
+                self.stats["signals_tolerated"] += 1
+            elif tol > 1.0:
+                self.stats["signals_reinforced"] += 1
+
         # 1) Inflammation des tissus touchés (avec co-stimulation par entité)
         contributions: dict[str, tuple[float, float, float]] = {}
         for ent in signal.entities:
-            contributions[ent] = self._inflame(ent, signal, 1.0, now)
+            contributions[ent] = self._inflame(ent, signal, tol, now)
         host_factor = cfg.default_host_factor if signal.host_factor is None else signal.host_factor
-        host_contrib = self._inflame(self.host, signal, host_factor, now)
+        host_contrib = self._inflame(self.host, signal, host_factor * tol, now)
 
         # Contribution « affichée » = la plus forte sur une entité reliante,
         # sinon celle de l'hôte (signal sans entité).
@@ -526,7 +556,7 @@ class InflammationEngine:
                 opened = True
             else:
                 self.stats["signals_subthreshold"] += 1
-                self._remember_precursor(signal, costim, contrib, habit)
+                self._remember_precursor(signal, costim, contrib, habit, tol)
                 return None
 
         prev_severity = incident.severity
@@ -552,6 +582,7 @@ class InflammationEngine:
                 details=dict(signal.details),
                 correlation=correlation,
                 habituation=habit,
+                tolerance=tol,
             ),
             correlation,
         )
@@ -617,7 +648,12 @@ class InflammationEngine:
         return costim, contribution, habit
 
     def _remember_precursor(
-        self, signal: DangerSignal, costim: float, contrib: float, habit: float
+        self,
+        signal: DangerSignal,
+        costim: float,
+        contrib: float,
+        habit: float,
+        tol: float = 1.0,
     ) -> None:
         pre = SignalContribution(
             signal_id=signal.signal_id,
@@ -633,6 +669,7 @@ class InflammationEngine:
             details=dict(signal.details),
             correlation="precursor",
             habituation=habit,
+            tolerance=tol,
         )
         for ent in signal.entities:
             tissue = self._tissues.get(ent)
@@ -818,4 +855,12 @@ class IncidentStore:
                     latest[inc["incident_id"]] = inc
                 except (json.JSONDecodeError, KeyError, TypeError):
                     continue
+        try:
+            from .feedback import FeedbackStore, feedback_path_for
+
+            for inc_id, rec in FeedbackStore(feedback_path_for(self.path)).load().items():
+                if inc_id in latest:
+                    latest[inc_id]["disposition"] = rec["verdict"]
+        except Exception as exc:
+            logger.warning("inflammation: qualifications illisibles (%s)", exc)
         return dict(sorted(latest.items(), key=lambda kv: kv[1].get("opened_at") or 0))
