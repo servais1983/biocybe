@@ -453,6 +453,7 @@ class ProcessMonitor:
         provider: ProcessProvider | None = None,
         max_alerts_per_key_per_hour: int = DEFAULT_MAX_ALERTS_PER_KEY_PER_HOUR,
         clock: Callable[[], float] = time.time,
+        source: str = "poll",
     ):
         self.rules = rules if rules is not None else load_rules()
         self.interval = max(0.5, float(interval))
@@ -467,6 +468,11 @@ class ProcessMonitor:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Source d'événements : "poll" (psutil), "netlink" (Linux, noyau),
+        # "sysmon" (Windows), "auto" (meilleure dispo, sinon poll).
+        self.source_kind = (source or "poll").lower()
+        self._source = None
+        self.active_source = "poll"
         self.stats = {
             "polls": 0,
             "processes_observed": 0,
@@ -587,23 +593,56 @@ class ProcessMonitor:
 
     # ---- thread --------------------------------------------------------------
 
+    def handle_event(self, event: ProcessEvent) -> int:
+        """Point d'entrée des sources temps réel : évalue + dispatch."""
+        with self._lock:
+            self.stats["new_processes"] += 1
+        return self.dispatch(self.evaluate(event))
+
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
+        if self._source is not None or (self._thread is not None and self._thread.is_alive()):
             return
         self._stop_event.clear()
+        n_rules = sum(1 for r in self.rules if r.enabled)
+        if self.source_kind != "poll":
+            from .process_sources import SourceUnavailable, build_source
+
+            try:
+                src = build_source(self.source_kind, self.handle_event)
+                if src is not None:
+                    src.start()
+                    self._source = src
+                    self.active_source = src.name
+                    logger.info(
+                        "ProcessMonitor démarré (%d règles, source temps réel %s)",
+                        n_rules,
+                        src.name,
+                    )
+                    return
+            except SourceUnavailable as exc:
+                logger.warning(
+                    "procmon : source %s indisponible (%s) — repli sur polling psutil "
+                    "(un processus plus court que %.1fs peut échapper)",
+                    self.source_kind,
+                    exc,
+                    self.interval,
+                )
+        self.active_source = "poll"
         self._thread = threading.Thread(target=self._loop, name="biocybe-procmon", daemon=True)
         self._thread.start()
         logger.info(
-            "ProcessMonitor démarré (%d règles actives, intervalle %.1fs)",
-            sum(1 for r in self.rules if r.enabled),
-            self.interval,
+            "ProcessMonitor démarré (%d règles actives, polling %.1fs)", n_rules, self.interval
         )
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop_event.set()
+        if self._source is not None:
+            self._source.stop()
+            self.stats.update({f"source_{k}": v for k, v in self._source.stats.items()})
+            self._source = None
         if self._thread is not None:
             self._thread.join(timeout=timeout)
-        logger.info("ProcessMonitor arrêté. Stats : %s", self.stats)
+        logger.info("ProcessMonitor arrêté (source %s). Stats : %s", self.active_source, self.stats)
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():

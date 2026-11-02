@@ -5,6 +5,34 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Télémétrie processus temps réel : plus de trou de polling
+
+Le polling psutil (2 s) ratait tout processus éphémère — le profil exact
+d'un one-liner offensif. Nouvelles sources (`src/biocybe/process_sources.py`) :
+
+- **Linux — proc connector netlink** : le noyau pousse chaque `fork`/`exec`
+  (aucune dépendance, pas de module eBPF à compiler ; root requis). Nom, exe
+  et ligne de commande lus dans `/proc` à la réception ; parent conservé même
+  s'il est déjà mort (cache borné). Processus disparu avant lecture →
+  événement **partiel** compté, jamais perdu en silence ; débordement du
+  buffer noyau compté (`overruns`).
+- **Windows — Sysmon Event ID 1** via `wevtutil` : journal durable avec
+  image, ligne de commande, parent ; signet `EventRecordID` (pas de rejeu de
+  l'historique au démarrage, pas de doublon).
+- `procmon.source: auto` (défaut) choisit la meilleure source disponible,
+  sinon repli sur le polling **avec avertissement explicite**. Flag
+  `--procmon-source {auto,poll,netlink,sysmon}`. Les règles ne changent pas.
+- **Mesure réelle** (50 processus éphémères `sh -c ":"` déclenchant une
+  règle) : polling **0/50**, proc connector **50/50**, 0 partiel. Daemon réel
+  en `auto` : netlink sélectionné, processus de quelques ms → incident
+  systémique corrélé.
+- 12 tests, dont un test noyau réel (Linux + root ; SKIP explicite sinon).
+- Limites : netlink exige root ; Sysmon doit être installé et n'est testé
+  qu'avec un `wevtutil` simulé (pas de runner Windows avec Sysmon en CI).
+  eBPF (arguments exacts au moment de l'exec, même si le processus meurt
+  instantanément) reste une amélioration possible.
+
+
 ### Télémétrie processus : voir ce qui n'écrit aucun fichier
 
 Signatures, IOC et dérive de fichiers étaient aveugles aux attaques

@@ -934,7 +934,8 @@ def _build_process_monitor_from_config(
                 logger.error("procmon: notify a échoué : %s", exc)
 
     interval = float(getattr(cli_args, "procmon_interval", None) or cfg.get("interval", 2.0))
-    return ProcessMonitor(rules, interval=interval, on_match=_on_match)
+    source = getattr(cli_args, "procmon_source", None) or cfg.get("source", "auto")
+    return ProcessMonitor(rules, interval=interval, on_match=_on_match, source=source)
 
 
 def _build_immune_memory_from_config(config: dict):
@@ -2492,7 +2493,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     if procmon is not None:
         print(
             f"Télémétrie processus : {sum(1 for r in procmon.rules if r.enabled)} règles "
-            "actives (création de processus + contexte parent)"
+            f"actives, source {procmon.active_source}"
         )
     if inflammation is not None:
         print(
@@ -2611,6 +2612,14 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="procmon",
         help="Active la télémétrie processus (création + parent + ligne de commande). "
         "Sinon utilise procmon.enabled de la config.",
+    )
+    parser.add_argument(
+        "--procmon-source",
+        choices=["auto", "poll", "netlink", "sysmon"],
+        default=None,
+        dest="procmon_source",
+        help="Source des événements processus : netlink (Linux, noyau, root), sysmon "
+        "(Windows, Event ID 1), poll (psutil), auto (meilleure dispo). Défaut config ou auto.",
     )
     parser.add_argument(
         "--procmon-interval",

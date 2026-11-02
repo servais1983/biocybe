@@ -38,6 +38,7 @@ Objectif final : alternative transparente, modulaire et explicable aux EDR ferm�
 - `src/biocybe/memory/immune_memory.py` — Mémoire immunitaire SQLite (réponse secondaire, suppression FP, apprentissage cross-session), intégrée au scanner + watcher + daemon + dashboard (onglet Mémoire), `biocybe memory {stats,recall,recent,mark,forget}`
 - `src/biocybe/intel/rules.py` — import opt-in règles YARA communautaires
 - `src/biocybe/process_monitor.py` — **télémétrie processus** : créations de processus + parent + cmdline (polling psutil), règles Sigma-lite (9 livrées : T1490 shadow copies, webshell, macro, PowerShell encodé, LOLBins, curl|sh, exec /tmp, secrets, agent IA→shell), YAML extensible. Alimente l'inflammation. `--procmon`, `biocybe procmon {scan,rules}`. Détection seule
+- `src/biocybe/process_sources.py` — sources **temps réel** pour procmon : proc connector netlink (Linux, noyau, root) + Sysmon Event ID 1 (Windows). `procmon.source: auto` (repli polling avec warning). Mesuré : polling 0/50 vs netlink 50/50 sur processus éphémères
 - `src/biocybe/inflammation/` — **système inflammatoire** (Danger Theory) : corrèle les signaux de toutes les cellules (watcher, regen, netmon, bus T-cell/macrophage) en incidents (niveau par entité à décroissance, co-stimulation, accoutumance, fusion, MITRE). Actif par défaut dans le daemon, observation pure ; NK opt-in sur systémique corroboré. `biocybe incidents {list,show}`. Validation `scripts/validate_inflammation.py`
 - `src/biocybe/api/app.py` — **API REST Flask production-ready** (Bearer auth, /healthz, /api/v1/scan, /api/v1/quarantine/*, /metrics)
 - `src/biocybe/notify/` — **NotifierManager** (Slack / syslog RFC 5424 / webhook HTTP) avec failover, retry, rate limit, hook isolation automatique
@@ -235,9 +236,9 @@ dans les phases 0-2.4 que les tests unitaires n'avaient pas vus).
 
 ## 7. Pièges connus / dette technique
 
-- procmon : polling (défaut 2 s) → un processus plus court peut échapper.
-  Prochaine étape naturelle : source eBPF (Linux) / ETW-Sysmon (Windows)
-  produisant des `ProcessEvent` (les règles n'ont pas à changer). La règle
+- procmon : en mode `poll` (repli sans root / sans Sysmon) un processus
+  plus court que l'intervalle échappe — 0/50 mesuré. En `netlink` : 50/50.
+  Sysmon n'est testé qu'avec un `wevtutil` simulé (pas de CI Windows+Sysmon). La règle
   `ai_agent_spawns_shell` matche aussi Claude Code lui-même : c'est voulu
   (poids 15, sous le seuil seul).
 
