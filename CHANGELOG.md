@@ -5,6 +5,32 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Capteur DNS : tunneling, DGA, beaconing, IOC (angle mort T1071.004 comblé)
+
+`src/biocybe/dns_monitor.py` — analyse séparée des sources :
+- **Analyse** (`DnsAnalyzer`, déterministe) : tunneling (sous-domaines
+  uniques longs à forte entropie, ou rafale TXT/NULL, T1071.004/T1048.003),
+  DGA (rafale NXDOMAIN sur domaines distincts, T1568.002), beaconing
+  (intervalle quasi constant, signal faible 30), domaines IOC des feeds.
+  Allowlist CDN/cloud ajustable, une alerte par épisode.
+- **Sources** : capture brute `AF_PACKET` (Linux, root, sans dépendance —
+  parsing Ethernet/VLAN/IPv4/IPv6/UDP/DNS avec garde-fou anti-boucle de
+  compression) ; **Sysmon Event ID 22** (Windows, rattache la requête au
+  processus) ; **logs Zeek `dns.log`** (TSV/JSON) pour le retro-hunt.
+- Corrélation : entité `domain:` + exe/PID si connus — un processus lancé
+  depuis /tmp qui tunnelise devient un incident systémique unique.
+- Daemon `--dnsmon` (désactivé par défaut), CLI `biocybe dns analyze dns.log`.
+- **Couverture mesurée** : 74 % → **80 % (16/20)** ; T1071.004 et T1568.002
+  désormais détectés ; seul T1055 (injection) reste non observable.
+- Validé : capture noyau réelle (requêtes vers 127.0.0.1 uniquement),
+  daemon réel → incident ; trafic légitime réaliste (navigation aléatoire,
+  CDN à sous-domaines aléatoires, fautes de frappe NXDOMAIN) → 0 constat.
+- Limites assumées : DoH/DoT invisibles à la capture (Sysmon 22 les voit
+  côté client) ; la capture ne connaît pas le processus ; un logiciel
+  légitime à vérification périodique ressemble à un beacon (signal faible,
+  sous le seuil, tolérable par apprentissage). 23 tests.
+
+
 ### Couverture MITRE ATT&CK mesurée par rejeu (`biocybe coverage`)
 
 `src/biocybe/coverage.py` rejoue un corpus de 19 cas de télémétrie

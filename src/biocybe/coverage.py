@@ -67,6 +67,33 @@ def _proc(name, cmdline, *, parent="explorer.exe", parent_cmd="", exe=None, pid=
     }
 
 
+def _dns_tunnel_queries(n: int = 30) -> list[dict[str, Any]]:
+    """Sous-domaines longs à forte entropie (données encodées), RFC 2606."""
+    import hashlib
+
+    return [
+        {
+            "qname": f"{hashlib.sha256(str(i).encode()).hexdigest()[:40]}.t.exfil-c2.test",
+            "qtype": "TXT",
+            "dt": 2,
+        }
+        for i in range(n)
+    ]
+
+
+def _dns_dga_queries(n: int = 30) -> list[dict[str, Any]]:
+    import hashlib
+
+    return [
+        {
+            "qname": f"{hashlib.md5(str(i).encode()).hexdigest()[:14]}.test",
+            "rcode": 3,
+            "dt": 1,
+        }
+        for i in range(n)
+    ]
+
+
 _IMPLANT = "/tmp/.x/implant"  # noqa: S108 - chemin décrit (télémétrie synthétique)
 
 # Corpus : chaque ligne de commande est celle qu'enregistrerait un capteur
@@ -241,9 +268,17 @@ CORPUS: list[Case] = [
         "T1071.004",
         "DNS (tunneling)",
         "command-and-control",
-        "not_observable",
-        [],
-        "Pas d'inspection DNS (requêtes/entropie) : capteur absent.",
+        "local",
+        [{"type": "dns", "queries": _dns_tunnel_queries()}],
+        "Capteur DNS (dnsmon) : sous-domaines uniques longs à forte entropie + TXT.",
+    ),
+    Case(
+        "T1568.002",
+        "Domain Generation Algorithms",
+        "command-and-control",
+        "local",
+        [{"type": "dns", "queries": _dns_dga_queries()}],
+        "Capteur DNS : rafale NXDOMAIN sur domaines distincts (rcode requis).",
     ),
     # ---- Lateral Movement -----------------------------------------------
     Case(
@@ -379,6 +414,23 @@ def _replay_case(case: Case, rules) -> dict[str, Any]:
                     "burst", {"paths": step["paths"], "window_count": len(step["paths"])}
                 )
             )
+        elif kind == "dns":
+            from .dns_monitor import DnsAnalyzer, DnsQuery
+            from .inflammation import from_dns_finding
+
+            analyzer = DnsAnalyzer()
+            for qd in step["queries"]:
+                clock[0] += qd.get("dt", 1)
+                for f in analyzer.feed(
+                    DnsQuery(
+                        qname=qd["qname"],
+                        qtype=qd.get("qtype", "A"),
+                        rcode=qd.get("rcode"),
+                        timestamp=clock[0],
+                        client="10.0.0.5",
+                    )
+                ):
+                    sigs.append(from_dns_finding(f))
         elif kind == "regen_drift":
             sigs.append(from_regen_event("drift", {"path": step["path"]}))
         for sig in sigs:

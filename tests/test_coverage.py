@@ -21,7 +21,9 @@ def test_no_detection_regression():
 def test_corpus_includes_known_gaps_honestly():
     results = {c.technique: c.expected for c in CORPUS}
     assert results["T1055"] == "not_observable"
-    assert results["T1071.004"] == "not_observable"
+    # T1071.004 devenu observable avec le capteur DNS (dnsmon)
+    assert results["T1071.004"] == "local"
+    assert sum(1 for c in CORPUS if c.expected == "not_observable") >= 1
     assert sum(1 for c in CORPUS if c.tactic == "chain") >= 2
 
 

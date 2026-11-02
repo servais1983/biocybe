@@ -394,3 +394,18 @@ procmon:
   rules_paths: []           # fichiers/dossiers YAML de regles additionnelles
   disabled_rules: []        # ids de regles livrees a desactiver
   notify_min_weight: 70     # notif directe seulement pour les regles fortes
+
+# Capteur DNS — tunneling (exfiltration/C2 dans les sous-domaines), DGA
+# (rafales NXDOMAIN), beaconing (requetes periodiques), domaines IOC.
+# Linux : capture AF_PACKET (root). Windows : Sysmon Event ID 22 (rattache
+# chaque requete au processus). Retro-hunt : `biocybe dns analyze dns.log` (Zeek).
+# DNS chiffre (DoH/DoT) invisible a la capture reseau (Sysmon 22 le voit).
+dnsmon:
+  enabled: false            # true OU flag CLI --dnsmon
+  source: auto              # auto | packet | sysmon
+  interface: ""             # vide = toutes les interfaces (capture)
+  db_path: "db/signatures"  # feeds IOC (domaines malveillants)
+  notify_min_weight: 70
+  tunnel_min_unique: 20     # sous-domaines uniques / fenetre pour suspecter un tunnel
+  window_seconds: 300
+  allowlist: []             # suffixes supplementaires a ignorer (CDN internes...)

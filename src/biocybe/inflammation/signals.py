@@ -239,3 +239,30 @@ def from_process_match(match: Any, *, source: str = "procmon") -> DangerSignal |
     except Exception as exc:
         logger.debug("from_process_match: entrée ignorée (%s)", exc)
         return None
+
+
+def from_dns_finding(finding: Any, *, source: str = "dnsmon") -> DangerSignal | None:
+    """DnsFinding (capteur DNS) -> signal ``dns:<type>``.
+
+    Entités : le domaine (relie tunneling, beaconing et IOC vers la même
+    cible) et, si connu (Sysmon 22), l'exe + le PID émetteurs — ce qui
+    corrèle « processus suspect » et « ce processus tunnelise ».
+    """
+    try:
+        entities = [f"domain:{finding.domain}"]
+        if getattr(finding, "process_exe", ""):
+            entities.append(file_entity(finding.process_exe))
+        if getattr(finding, "pid", None) is not None:
+            entities.append(f"pid:{finding.pid}")
+        return DangerSignal(
+            kind=f"dns:{finding.kind}",
+            source=source,
+            weight=float(finding.weight),
+            entities=tuple(entities),
+            summary=finding.summary,
+            mitre=tuple(finding.mitre),
+            details=dict(finding.details, client=getattr(finding, "client", "")),
+        )
+    except Exception as exc:
+        logger.debug("from_dns_finding: entrée ignorée (%s)", exc)
+        return None
