@@ -116,7 +116,7 @@ where = ["src"]
 include = ["biocybe*"]
 
 [tool.setuptools.package-data]
-"biocybe" = ["py.typed"]
+"biocybe" = ["py.typed", "dashboard/assets/*.css"]
 
 # ---- Pytest ----
 [tool.pytest.ini_options]

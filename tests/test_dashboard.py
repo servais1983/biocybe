@@ -97,7 +97,22 @@ def _config(tmp_path):
         quarantine_dir=str(tmp_path / "quarantine"),
         audit_path=str(tmp_path / "logs" / "audit.jsonl"),
         signatures_db_path=str(tmp_path / "db" / "signatures"),
+        incidents_path=str(tmp_path / "db" / "incidents" / "incidents.jsonl"),
     )
+
+
+def _seed_incidents(tmp_path):
+    """Un incident systémique ouvert (kill chain) + un local résolu."""
+    from biocybe.inflammation import DangerSignal, IncidentStore, InflammationEngine
+
+    t = [1_700_000_000.0]
+    store = IncidentStore(tmp_path / "db" / "incidents" / "incidents.jsonl")
+    eng = InflammationEngine(host="h", clock=lambda: t[0], store=store)
+    eng.ingest(DangerSignal("file_malware", "w", 70, entities=("file:/b",), mitre=("T1105",)))
+    t[0] += 7200
+    eng.tick()  # résout l'incident /b
+    eng.ingest(DangerSignal("file_malware", "w", 70, entities=("file:/a",), mitre=("T1105",)))
+    eng.ingest(DangerSignal("network_ioc", "n", 80, entities=("file:/a",), mitre=("T1071",)))
 
 
 # ----------------------------------------------------------------------
@@ -213,7 +228,7 @@ def test_snapshot_full(tmp_path):
     data = DashboardData(_config(tmp_path))
     snap = data.snapshot()
 
-    assert set(snap.keys()) == {"overview", "quarantine", "audit", "intel", "memory"}
+    assert set(snap.keys()) == {"overview", "quarantine", "audit", "intel", "memory", "incidents"}
     # Sérialisable JSON (important pour export/SIEM)
     json.dumps(snap)
 
@@ -267,3 +282,53 @@ def test_cli_dashboard_serve_missing_deps_exit_2(tmp_path, monkeypatch, capsys):
     exit_code = main(["dashboard", "serve"])
     assert exit_code == 2
     assert "biocybe[web]" in capsys.readouterr().err
+
+
+def test_incidents_summary(tmp_path):
+    from biocybe.dashboard.data import DashboardData
+
+    _seed_incidents(tmp_path)
+    inc = DashboardData(_config(tmp_path)).incidents_summary()
+    assert inc["exists"] and inc["total"] == 2
+    assert inc["open"] == 1 and inc["open_systemic"] == 1
+    assert inc["by_status"] == {"resolved": 1, "open": 1}
+    assert inc["by_mitre"]["T1105"] == 2 and inc["by_mitre"]["T1071"] == 1
+    # Ouverts systémiques en tête du tableau
+    assert inc["table"][0]["status"] == "open" and inc["table"][0]["severity"] == "systemic"
+    assert "SYSTÉMIQUE" in inc["latest_systemic"]["explanation"]
+    json.dumps(inc)
+
+
+def test_incidents_summary_missing_and_corrupt(tmp_path):
+    from biocybe.dashboard.data import DashboardData
+
+    data = DashboardData(_config(tmp_path))
+    assert data.incidents_summary()["exists"] is False
+    p = tmp_path / "db" / "incidents" / "incidents.jsonl"
+    p.parent.mkdir(parents=True)
+    p.write_text("pas du json\n{\n", encoding="utf-8")
+    inc = data.incidents_summary()
+    assert inc["exists"] is True and inc["total"] == 0
+
+
+def test_overview_includes_incident_kpis(tmp_path):
+    from biocybe.dashboard.data import DashboardData
+
+    _seed_incidents(tmp_path)
+    o = DashboardData(_config(tmp_path)).overview()
+    assert o["incidents_open"] == 1 and o["incidents_open_systemic"] == 1
+
+
+@pytest.mark.skipif(not _HAS_DASH, reason="extra [web] non installé")
+def test_dashboard_is_self_contained_no_cdn(tmp_path, monkeypatch):
+    """SOC isolé d'Internet : aucun CSS externe par défaut, thème local servi."""
+    from biocybe.dashboard.app import create_dashboard
+
+    monkeypatch.delenv("BIOCYBE_DASHBOARD_THEME_URL", raising=False)
+    app = create_dashboard(_config(tmp_path))
+    assert app.config.external_stylesheets == []
+    assert (Path(app.config.assets_folder) / "biocybe.css").is_file()
+    monkeypatch.setenv("BIOCYBE_DASHBOARD_THEME_URL", "https://example.test/theme.css")
+    assert create_dashboard(_config(tmp_path)).config.external_stylesheets == [
+        "https://example.test/theme.css"
+    ]

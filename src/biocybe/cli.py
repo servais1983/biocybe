@@ -1881,6 +1881,7 @@ def cmd_dashboard_serve(args: argparse.Namespace) -> int:
         quarantine_dir=args.quarantine_dir,
         audit_path=args.audit_path,
         signatures_db_path=args.db_path,
+        incidents_path=getattr(args, "incidents_path", DEFAULT_INCIDENTS_PATH),
     )
     try:
         from .dashboard.app import DashboardUnavailable, serve_dashboard
@@ -3262,6 +3263,9 @@ def _build_parser() -> argparse.ArgumentParser:
     dash_serve.add_argument("--host", default="127.0.0.1", help="Bind host (defaut 127.0.0.1)")
     dash_serve.add_argument("--port", type=int, default=8050, help="Port (defaut 8050)")
     dash_serve.add_argument("--quarantine-dir", default="quarantine", help="Dossier quarantaine")
+    dash_serve.add_argument(
+        "--incidents-path", default=DEFAULT_INCIDENTS_PATH, help="Journal des incidents"
+    )
     dash_serve.add_argument(
         "--audit-path", default="logs/audit.jsonl", help="Chemin de l'audit log"
     )
