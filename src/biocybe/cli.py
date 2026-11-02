@@ -31,17 +31,17 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        # encoding="utf-8" explicite : sinon Windows utilise cp1252 par
-        # défaut et casse les accents — donc logs illisibles dans un
-        # SIEM Linux qui s'attend à de l'UTF-8.
-        logging.FileHandler("biocybe.log", encoding="utf-8"),
-    ],
-)
+# Handlers partagés avec biocybe_core : fichier biocybe.log en UTF-8 si
+# inscriptible, sinon stderr seul (conteneur non-root / FS en lecture seule).
+# basicConfig est un no-op si biocybe_core a déjà configuré le logger racine.
+from .biocybe_core.core import _default_log_handlers
+
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=_default_log_handlers(),
+    )
 logger = logging.getLogger("biocybe.cli")
 
 # État global pour le daemon
