@@ -67,6 +67,33 @@ def _proc(name, cmdline, *, parent="explorer.exe", parent_cmd="", exe=None, pid=
     }
 
 
+def _dns_tunnel_queries(n: int = 30) -> list[dict[str, Any]]:
+    """Sous-domaines longs à forte entropie (données encodées), RFC 2606."""
+    import hashlib
+
+    return [
+        {
+            "qname": f"{hashlib.sha256(str(i).encode()).hexdigest()[:40]}.t.exfil-c2.test",
+            "qtype": "TXT",
+            "dt": 2,
+        }
+        for i in range(n)
+    ]
+
+
+def _dns_dga_queries(n: int = 30) -> list[dict[str, Any]]:
+    import hashlib
+
+    return [
+        {
+            "qname": f"{hashlib.md5(str(i).encode()).hexdigest()[:14]}.test",
+            "rcode": 3,
+            "dt": 1,
+        }
+        for i in range(n)
+    ]
+
+
 _IMPLANT = "/tmp/.x/implant"  # noqa: S108 - chemin décrit (télémétrie synthétique)
 
 # Corpus : chaque ligne de commande est celle qu'enregistrerait un capteur
@@ -209,11 +236,44 @@ CORPUS: list[Case] = [
     ),
     Case(
         "T1055",
-        "Process Injection",
+        "Process Injection (shellcode RWX dans un processus)",
+        "defense-evasion",
+        "local",
+        [
+            {
+                "type": "memory",
+                "pid": 7100,
+                "name": "sshd",
+                "exe": "/usr/sbin/sshd",
+                "maps": "55d0c0000000-55d0c0010000 r-xp 00000000 08:01 1234 /usr/sbin/sshd\n"
+                "7f11a0000000-7f11a0021000 rwxp 00000000 00:00 0 \n",
+            }
+        ],
+        "Capteur injmon : traces mémoire (pas l'acte d'injection lui-même).",
+    ),
+    Case(
+        "T1620",
+        "Reflective Code Loading (exécution depuis memfd)",
+        "defense-evasion",
+        "local",
+        [
+            {
+                "type": "memory",
+                "pid": 7200,
+                "name": "kworker",
+                "exe": "/memfd:  (deleted)",
+                "maps": "7f22b0000000-7f22b0100000 r-xp 00000000 00:01 77 /memfd:  (deleted)\n",
+            }
+        ],
+        "Capteur injmon : code exécuté depuis un memfd (fileless).",
+    ),
+    Case(
+        "T1055.012",
+        "Process Hollowing (in-memory, sans trace RWX)",
         "defense-evasion",
         "not_observable",
         [],
-        "Aucun capteur mémoire/API (nécessiterait ETW-TI / eBPF kprobes).",
+        "Hollowing propre (sections remappées depuis un fichier) : nécessite ETW-TI / eBPF.",
     ),
     # ---- Command and Control --------------------------------------------
     Case(
@@ -241,9 +301,17 @@ CORPUS: list[Case] = [
         "T1071.004",
         "DNS (tunneling)",
         "command-and-control",
-        "not_observable",
-        [],
-        "Pas d'inspection DNS (requêtes/entropie) : capteur absent.",
+        "local",
+        [{"type": "dns", "queries": _dns_tunnel_queries()}],
+        "Capteur DNS (dnsmon) : sous-domaines uniques longs à forte entropie + TXT.",
+    ),
+    Case(
+        "T1568.002",
+        "Domain Generation Algorithms",
+        "command-and-control",
+        "local",
+        [{"type": "dns", "queries": _dns_dga_queries()}],
+        "Capteur DNS : rafale NXDOMAIN sur domaines distincts (rcode requis).",
     ),
     # ---- Lateral Movement -----------------------------------------------
     Case(
@@ -379,6 +447,31 @@ def _replay_case(case: Case, rules) -> dict[str, Any]:
                     "burst", {"paths": step["paths"], "window_count": len(step["paths"])}
                 )
             )
+        elif kind == "dns":
+            from .dns_monitor import DnsAnalyzer, DnsQuery
+            from .inflammation import from_dns_finding
+
+            analyzer = DnsAnalyzer()
+            for qd in step["queries"]:
+                clock[0] += qd.get("dt", 1)
+                for f in analyzer.feed(
+                    DnsQuery(
+                        qname=qd["qname"],
+                        qtype=qd.get("qtype", "A"),
+                        rcode=qd.get("rcode"),
+                        timestamp=clock[0],
+                        client="10.0.0.5",
+                    )
+                ):
+                    sigs.append(from_dns_finding(f))
+        elif kind == "memory":
+            from .inflammation import from_injection_finding
+            from .injection_monitor import InjectionScanner
+
+            for f in InjectionScanner().analyze_maps(
+                step["pid"], step["name"], step["exe"], step["maps"]
+            ):
+                sigs.append(from_injection_finding(f))
         elif kind == "regen_drift":
             sigs.append(from_regen_event("drift", {"path": step["path"]}))
         for sig in sigs:

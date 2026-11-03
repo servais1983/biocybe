@@ -5,6 +5,77 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Capteur d'injection mémoire (T1055) — dernier angle mort en grande partie comblé
+
+`src/biocybe/injection_monitor.py` voit les **traces** que l'injection laisse
+(pas l'acte lui-même, impossible sans pilote noyau) :
+- Linux `/proc` : région exécutable non adossée à un fichier (`anon_exec`,
+  `wx_anon` si RWX — y compris les mappings partagés que le noyau affiche
+  `/dev/zero (deleted)`, piège découvert en test réel), code exécuté depuis
+  un `memfd` (fileless, T1620) ou un fichier supprimé (T1070.004),
+  processus tracé par ptrace (T1055.008, débogueurs connus = signal faible),
+  `LD_PRELOAD` depuis un dossier modifiable (T1574.006).
+- Windows : Sysmon EID 8 `CreateRemoteThread` (T1055) et EID 10 accès
+  mémoire à `lsass.exe` (T1003.001), bruit système filtré.
+- Allowlists : runtimes JIT (mémoire exécutable anonyme légitime) et memfd
+  légitimes (`runc_cloned` ; un faux positif réel a été observé sur la
+  télémétrie du sandbox de test → configurable).
+- Daemon `--injmon` (scan périodique, une alerte par anomalie et par
+  processus, anti-recyclage de PID), CLI `biocybe injmon scan [--pid]`,
+  corrélé à l'inflammation (exe + PID : une injection dans un binaire lancé
+  depuis /tmp rejoint son incident, systémique).
+- **Couverture mesurée** : 80 % → **82 % (18/22)** ; T1055 et T1620
+  détectés. Ajouté honnêtement : T1055.012 (hollowing « propre ») reste non
+  observable.
+- Validé sur de vrais processus (page RWX privée et partagée, memfd
+  exécutable, attache ptrace réelle, LD_PRELOAD /tmp, processus bénin
+  propre) et sur le daemon réel (incident T1055). 22 tests.
+- Limites : instantané périodique (une injection qui nettoie avant le scan
+  échappe) ; un attaquant qui injecte dans un runtime JIT allowlisté échappe
+  à `anon_exec`/`wx_anon` ; root requis pour voir les autres processus.
+
+
+### Validation en labo isolé : guide + `biocybe lab score`
+
+- `docs/LAB_VALIDATION.md` : méthode de validation défensive (« purple
+  team ») contre de vraies techniques dans un labo isolé et autorisé —
+  topologie, isolation (snapshots, pas de route vers la prod), période de
+  référence des faux positifs, plan de test aligné sur le corpus `coverage`
+  (frameworks publiés, lecture de chaque test, nettoyage), interprétation
+  des écarts, contenu d'un rapport honnête. Modèle `docs/lab_plan_template.csv`.
+- `biocybe lab score --plan plan.csv` (`src/biocybe/lab.py`) : confronte le
+  plan d'exécution aux incidents réellement produits → taux de détection,
+  part systémique, latence (médiane/max), techniques ratées et **incidents
+  non expliqués** (faux positifs probables). Sous-techniques gérées, fenêtre
+  et tolérance d'horloge réglables, exit 1 si une technique est ratée. 4 tests.
+
+
+### Capteur DNS : tunneling, DGA, beaconing, IOC (angle mort T1071.004 comblé)
+
+`src/biocybe/dns_monitor.py` — analyse séparée des sources :
+- **Analyse** (`DnsAnalyzer`, déterministe) : tunneling (sous-domaines
+  uniques longs à forte entropie, ou rafale TXT/NULL, T1071.004/T1048.003),
+  DGA (rafale NXDOMAIN sur domaines distincts, T1568.002), beaconing
+  (intervalle quasi constant, signal faible 30), domaines IOC des feeds.
+  Allowlist CDN/cloud ajustable, une alerte par épisode.
+- **Sources** : capture brute `AF_PACKET` (Linux, root, sans dépendance —
+  parsing Ethernet/VLAN/IPv4/IPv6/UDP/DNS avec garde-fou anti-boucle de
+  compression) ; **Sysmon Event ID 22** (Windows, rattache la requête au
+  processus) ; **logs Zeek `dns.log`** (TSV/JSON) pour le retro-hunt.
+- Corrélation : entité `domain:` + exe/PID si connus — un processus lancé
+  depuis /tmp qui tunnelise devient un incident systémique unique.
+- Daemon `--dnsmon` (désactivé par défaut), CLI `biocybe dns analyze dns.log`.
+- **Couverture mesurée** : 74 % → **80 % (16/20)** ; T1071.004 et T1568.002
+  désormais détectés ; seul T1055 (injection) reste non observable.
+- Validé : capture noyau réelle (requêtes vers 127.0.0.1 uniquement),
+  daemon réel → incident ; trafic légitime réaliste (navigation aléatoire,
+  CDN à sous-domaines aléatoires, fautes de frappe NXDOMAIN) → 0 constat.
+- Limites assumées : DoH/DoT invisibles à la capture (Sysmon 22 les voit
+  côté client) ; la capture ne connaît pas le processus ; un logiciel
+  légitime à vérification périodique ressemble à un beacon (signal faible,
+  sous le seuil, tolérable par apprentissage). 23 tests.
+
+
 ### Couverture MITRE ATT&CK mesurée par rejeu (`biocybe coverage`)
 
 `src/biocybe/coverage.py` rejoue un corpus de 19 cas de télémétrie

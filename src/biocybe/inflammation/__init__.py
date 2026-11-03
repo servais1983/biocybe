@@ -36,6 +36,8 @@ from .feedback import (
 from .signals import (
     from_cell_message,
     from_connection_record,
+    from_dns_finding,
+    from_injection_finding,
     from_process_match,
     from_regen_event,
     from_watch_event,
@@ -66,6 +68,8 @@ __all__ = [
     "file_entity",
     "from_cell_message",
     "from_connection_record",
+    "from_dns_finding",
+    "from_injection_finding",
     "from_process_match",
     "from_regen_event",
     "from_watch_event",
