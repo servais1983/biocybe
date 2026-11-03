@@ -266,3 +266,30 @@ def from_dns_finding(finding: Any, *, source: str = "dnsmon") -> DangerSignal | 
     except Exception as exc:
         logger.debug("from_dns_finding: entrée ignorée (%s)", exc)
         return None
+
+
+def from_injection_finding(finding: Any, *, source: str = "injmon") -> DangerSignal | None:
+    """InjectionFinding (capteur mémoire) -> signal ``memory:<type>``.
+
+    Entités : l'exe (même espace que watcher/procmon) et le PID — une
+    injection dans un processus déjà suspect (lancé depuis /tmp, parlant à
+    un C2) rejoint son incident.
+    """
+    try:
+        entities = []
+        exe = (getattr(finding, "process_exe", "") or "").replace(" (deleted)", "")
+        if exe and not exe.startswith("/memfd:"):
+            entities.append(file_entity(exe))
+        entities.append(f"pid:{finding.pid}")
+        return DangerSignal(
+            kind=f"memory:{finding.kind}",
+            source=source,
+            weight=float(finding.weight),
+            entities=tuple(entities),
+            summary=finding.summary,
+            mitre=tuple(finding.mitre),
+            details=dict(finding.details, process_name=finding.process_name),
+        )
+    except Exception as exc:
+        logger.debug("from_injection_finding: entrée ignorée (%s)", exc)
+        return None

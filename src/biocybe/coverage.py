@@ -236,11 +236,44 @@ CORPUS: list[Case] = [
     ),
     Case(
         "T1055",
-        "Process Injection",
+        "Process Injection (shellcode RWX dans un processus)",
+        "defense-evasion",
+        "local",
+        [
+            {
+                "type": "memory",
+                "pid": 7100,
+                "name": "sshd",
+                "exe": "/usr/sbin/sshd",
+                "maps": "55d0c0000000-55d0c0010000 r-xp 00000000 08:01 1234 /usr/sbin/sshd\n"
+                "7f11a0000000-7f11a0021000 rwxp 00000000 00:00 0 \n",
+            }
+        ],
+        "Capteur injmon : traces mémoire (pas l'acte d'injection lui-même).",
+    ),
+    Case(
+        "T1620",
+        "Reflective Code Loading (exécution depuis memfd)",
+        "defense-evasion",
+        "local",
+        [
+            {
+                "type": "memory",
+                "pid": 7200,
+                "name": "kworker",
+                "exe": "/memfd:  (deleted)",
+                "maps": "7f22b0000000-7f22b0100000 r-xp 00000000 00:01 77 /memfd:  (deleted)\n",
+            }
+        ],
+        "Capteur injmon : code exécuté depuis un memfd (fileless).",
+    ),
+    Case(
+        "T1055.012",
+        "Process Hollowing (in-memory, sans trace RWX)",
         "defense-evasion",
         "not_observable",
         [],
-        "Aucun capteur mémoire/API (nécessiterait ETW-TI / eBPF kprobes).",
+        "Hollowing propre (sections remappées depuis un fichier) : nécessite ETW-TI / eBPF.",
     ),
     # ---- Command and Control --------------------------------------------
     Case(
@@ -431,6 +464,14 @@ def _replay_case(case: Case, rules) -> dict[str, Any]:
                     )
                 ):
                     sigs.append(from_dns_finding(f))
+        elif kind == "memory":
+            from .inflammation import from_injection_finding
+            from .injection_monitor import InjectionScanner
+
+            for f in InjectionScanner().analyze_maps(
+                step["pid"], step["name"], step["exe"], step["maps"]
+            ):
+                sigs.append(from_injection_finding(f))
         elif kind == "regen_drift":
             sigs.append(from_regen_event("drift", {"path": step["path"]}))
         for sig in sigs:

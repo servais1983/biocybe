@@ -904,6 +904,57 @@ def _make_incident_handler(notify_mgr, *, nk_cell, level_systemic, transition_re
     return _on_incident
 
 
+def _build_injection_monitor_from_config(
+    config: dict, notify_mgr, *, cli_args=None, inflammation=None
+):
+    """Capteur d'injection mémoire (T1055/T1620/T1574.006...) — config.injmon / --injmon."""
+    cfg = (config or {}).get("injmon") or {}
+    if not cfg.get("enabled", False) and not getattr(cli_args, "injmon", False):
+        return None
+    from .injection_monitor import (
+        DEFAULT_JIT_ALLOWLIST,
+        DEFAULT_MEMFD_ALLOWLIST,
+        InjectionMonitor,
+        InjectionScanner,
+    )
+
+    scanner = InjectionScanner(
+        jit_allowlist=DEFAULT_JIT_ALLOWLIST | frozenset(cfg.get("jit_allowlist") or []),
+        memfd_allowlist=DEFAULT_MEMFD_ALLOWLIST | frozenset(cfg.get("memfd_allowlist") or []),
+    )
+    notify_min = float(cfg.get("notify_min_weight", 70))
+    from .audit import audit as _audit
+
+    def _on_finding(f) -> None:
+        _audit("memory_finding", actor="injmon", outcome="alert", details=f.to_dict())
+        if inflammation is not None:
+            from .inflammation import from_injection_finding
+
+            sig = from_injection_finding(f)
+            if sig is not None:
+                inflammation.ingest(sig)
+        if notify_mgr is not None and f.weight >= notify_min:
+            try:
+                from .notify import Event, EventKind, Severity
+
+                notify_mgr.notify(
+                    Event(
+                        kind=EventKind.REALTIME_DETECTION,
+                        severity=Severity.CRITICAL if f.weight >= 85 else Severity.WARNING,
+                        title=f"Mémoire suspecte : {f.kind} ({f.process_name})",
+                        message=f.summary,
+                        source="injmon",
+                        payload=f.to_dict(),
+                    )
+                )
+            except Exception as exc:
+                logger.error("injmon: notify a échoué : %s", exc)
+
+    return InjectionMonitor(
+        scanner, interval=float(cfg.get("interval", 30)), on_finding=_on_finding
+    )
+
+
 def _build_dns_monitor_from_config(config: dict, notify_mgr, *, cli_args=None, inflammation=None):
     """Capteur DNS (tunneling / DGA / beaconing / IOC) depuis config.dnsmon / --dnsmon.
 
@@ -2373,6 +2424,32 @@ def cmd_incidents_tolerance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_injmon_scan(args: argparse.Namespace) -> int:
+    """Scan ponctuel de la mémoire des processus (Linux /proc)."""
+    from .injection_monitor import DEFAULT_MEMFD_ALLOWLIST, InjectionScanner
+
+    scanner = InjectionScanner(
+        memfd_allowlist=DEFAULT_MEMFD_ALLOWLIST | frozenset(args.allow_memfd or [])
+    )
+    if args.pid:
+        findings = []
+        for pid in args.pid:
+            findings += scanner.scan_pid(pid)
+    else:
+        findings = scanner.scan_all(exclude={os.getpid()})
+    if args.json:
+        print(json.dumps([f.to_dict() for f in findings], indent=2, ensure_ascii=False))
+    else:
+        st = scanner.stats
+        print(
+            f"{st['processes']} processus analysés ({st['unreadable']} illisibles, "
+            f"{st['jit_skipped']} régions JIT ignorées) — {len(findings)} constat(s)"
+        )
+        for f in findings:
+            print(f"  [{f.weight:>3.0f}] {f.kind:<20} {','.join(f.mitre):<16} {f.summary[:100]}")
+    return 1 if findings else 0
+
+
 def cmd_dns_analyze(args: argparse.Namespace) -> int:
     """Analyse rétrospective d'un dns.log Zeek (TSV/JSON) : retro-hunt SOC."""
     from .dns_monitor import DnsAnalyzer, read_zeek_dns_log
@@ -2635,6 +2712,13 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     if dnsmon is not None and not dnsmon.start():
         dnsmon = None
 
+    # Capteur d'injection mémoire (T1055, fileless, ptrace, LD_PRELOAD)
+    injmon = _build_injection_monitor_from_config(
+        config, notify_mgr, cli_args=args, inflammation=inflammation
+    )
+    if injmon is not None and not injmon.start():
+        injmon = None
+
     if netmon_service is not None:
         netmon_service.start()
         logger.info(
@@ -2705,6 +2789,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             f"Télémétrie processus : {sum(1 for r in procmon.rules if r.enabled)} règles "
             f"actives, source {procmon.active_source}"
         )
+    if injmon is not None:
+        print(f"Capteur injection mémoire : source {injmon.active_source}")
     if dnsmon is not None:
         print(f"Capteur DNS : source {dnsmon.active_source} (tunneling, DGA, beaconing, IOC)")
     if inflammation is not None:
@@ -2757,6 +2843,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             procmon.stop()
         if dnsmon is not None:
             dnsmon.stop()
+        if injmon is not None:
+            injmon.stop()
         if watcher is not None:
             watcher.stop()
         if _core and _core.active:
@@ -2820,6 +2908,13 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="netmon",
         help="Active la surveillance live des connexions sortantes (Phase 3.h). "
         "Sinon utilise netmon.enabled de la config.",
+    )
+    parser.add_argument(
+        "--injmon",
+        action="store_true",
+        dest="injmon",
+        help="Active le capteur d'injection mémoire (régions exécutables anonymes, "
+        "memfd, ptrace, LD_PRELOAD ; Windows : Sysmon EID 8/10).",
     )
     parser.add_argument(
         "--dnsmon",
@@ -3403,6 +3498,16 @@ def _build_parser() -> argparse.ArgumentParser:
     mem_forget.add_argument("--type", required=True)
     mem_forget.add_argument("--db-path", default=DEFAULT_MEM_DB)
 
+    # ---------------- injmon (capteur d'injection mémoire) -------------------
+    inj_p = subparsers.add_parser(
+        "injmon", help="Injection memoire : RWX anonyme, memfd, ptrace, LD_PRELOAD"
+    )
+    inj_sub = inj_p.add_subparsers(dest="injmon_command", required=True)
+    inj_scan = inj_sub.add_parser("scan", help="Scan ponctuel de /proc (exit 1 si constat)")
+    inj_scan.add_argument("--pid", type=int, action="append", help="PID(s) a scanner")
+    inj_scan.add_argument("--allow-memfd", action="append", help="Nom de memfd legitime a ignorer")
+    inj_scan.add_argument("--json", action="store_true")
+
     # ---------------- dns (capteur DNS) -------------------------------------
     dns_p = subparsers.add_parser("dns", help="Capteur DNS : tunneling, DGA, beaconing, IOC")
     dns_sub = dns_p.add_subparsers(dest="dns_command", required=True)
@@ -3679,6 +3784,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_memory_mark(args)
         if args.memory_command == "forget":
             return cmd_memory_forget(args)
+    if args.command == "injmon" and args.injmon_command == "scan":
+        return cmd_injmon_scan(args)
     if args.command == "dns" and args.dns_command == "analyze":
         return cmd_dns_analyze(args)
     if args.command == "lab" and args.lab_command == "score":

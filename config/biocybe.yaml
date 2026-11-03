@@ -409,3 +409,18 @@ dnsmon:
   tunnel_min_unique: 20     # sous-domaines uniques / fenetre pour suspecter un tunnel
   window_seconds: 300
   allowlist: []             # suffixes supplementaires a ignorer (CDN internes...)
+
+# Capteur d'injection memoire — traces laissees par l'injection de code :
+# region executable non adossee a un fichier (RWX = pire), code execute depuis
+# un memfd (fileless) ou un fichier supprime, processus trace (ptrace),
+# LD_PRELOAD depuis un dossier modifiable. Windows : Sysmon EID 8
+# (CreateRemoteThread) + EID 10 (acces memoire a lsass).
+# Limites : instantane periodique ; runtimes JIT allowlistes (et donc
+# exploitables) ; root requis pour voir les autres processus.
+#   biocybe injmon scan [--pid N]
+injmon:
+  enabled: false            # true OU flag CLI --injmon
+  interval: 30              # secondes entre deux scans de /proc
+  jit_allowlist: []         # noms de runtimes JIT supplementaires
+  memfd_allowlist: []       # noms de memfd legitimes (runc_cloned par defaut)
+  notify_min_weight: 70

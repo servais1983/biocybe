@@ -20,7 +20,9 @@ def test_no_detection_regression():
 
 def test_corpus_includes_known_gaps_honestly():
     results = {c.technique: c.expected for c in CORPUS}
-    assert results["T1055"] == "not_observable"
+    # T1055 observable via injmon (traces mémoire) ; le hollowing propre reste aveugle
+    assert results["T1055"] == "local"
+    assert results["T1055.012"] == "not_observable"
     # T1071.004 devenu observable avec le capteur DNS (dnsmon)
     assert results["T1071.004"] == "local"
     assert sum(1 for c in CORPUS if c.expected == "not_observable") >= 1
@@ -52,7 +54,7 @@ def test_navigator_layer_format():
     assert layer["domain"] == "enterprise-attack" and layer["versions"]["layer"] == "4.5"
     by_id = {t["techniqueID"]: t for t in layer["techniques"]}
     assert by_id["T1490"]["score"] == 100
-    assert by_id["T1055"]["score"] == 0
+    assert by_id["T1055.012"]["score"] == 0
     assert all("+" not in t for t in by_id)  # chaînes exclues de la couche
     json.dumps(layer)
 

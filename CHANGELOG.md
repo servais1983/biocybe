@@ -5,6 +5,36 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Capteur d'injection mémoire (T1055) — dernier angle mort en grande partie comblé
+
+`src/biocybe/injection_monitor.py` voit les **traces** que l'injection laisse
+(pas l'acte lui-même, impossible sans pilote noyau) :
+- Linux `/proc` : région exécutable non adossée à un fichier (`anon_exec`,
+  `wx_anon` si RWX — y compris les mappings partagés que le noyau affiche
+  `/dev/zero (deleted)`, piège découvert en test réel), code exécuté depuis
+  un `memfd` (fileless, T1620) ou un fichier supprimé (T1070.004),
+  processus tracé par ptrace (T1055.008, débogueurs connus = signal faible),
+  `LD_PRELOAD` depuis un dossier modifiable (T1574.006).
+- Windows : Sysmon EID 8 `CreateRemoteThread` (T1055) et EID 10 accès
+  mémoire à `lsass.exe` (T1003.001), bruit système filtré.
+- Allowlists : runtimes JIT (mémoire exécutable anonyme légitime) et memfd
+  légitimes (`runc_cloned` ; un faux positif réel a été observé sur la
+  télémétrie du sandbox de test → configurable).
+- Daemon `--injmon` (scan périodique, une alerte par anomalie et par
+  processus, anti-recyclage de PID), CLI `biocybe injmon scan [--pid]`,
+  corrélé à l'inflammation (exe + PID : une injection dans un binaire lancé
+  depuis /tmp rejoint son incident, systémique).
+- **Couverture mesurée** : 80 % → **82 % (18/22)** ; T1055 et T1620
+  détectés. Ajouté honnêtement : T1055.012 (hollowing « propre ») reste non
+  observable.
+- Validé sur de vrais processus (page RWX privée et partagée, memfd
+  exécutable, attache ptrace réelle, LD_PRELOAD /tmp, processus bénin
+  propre) et sur le daemon réel (incident T1055). 22 tests.
+- Limites : instantané périodique (une injection qui nettoie avant le scan
+  échappe) ; un attaquant qui injecte dans un runtime JIT allowlisté échappe
+  à `anon_exec`/`wx_anon` ; root requis pour voir les autres processus.
+
+
 ### Validation en labo isolé : guide + `biocybe lab score`
 
 - `docs/LAB_VALIDATION.md` : méthode de validation défensive (« purple
