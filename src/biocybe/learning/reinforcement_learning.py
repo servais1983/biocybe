@@ -10,12 +10,14 @@ import os
 import pickle
 import random
 from collections import deque
+from typing import Any
 
 import yaml
 
 # numpy n'est pas une dépendance du cœur (extra [ml]) : import guardé pour
 # que `import biocybe.learning.reinforcement_learning` ne crashe pas sur
 # une install minimale (cf. tests/test_smoke.py). Requis seulement à l'usage.
+np: Any
 try:
     import numpy as np
 except ImportError:  # pragma: no cover - dépend de l'environnement

@@ -197,7 +197,7 @@ class DnsAnalyzer:
         self._nx: dict[str, deque] = defaultdict(deque)  # émetteur -> (ts, qname)
         self._beacon: dict[tuple[str, str], deque] = defaultdict(lambda: deque(maxlen=16))
         self._last_alert: dict[tuple[str, str], float] = {}
-        self.stats = Counter()
+        self.stats: Counter[str] = Counter()
 
     def _allowed(self, name: str) -> bool:
         return any(name == a or name.endswith("." + a) for a in self.config.allowlist)
@@ -495,7 +495,7 @@ def parse_ethernet_dns(frame: bytes, *, port: int = 53) -> list[DnsQuery]:
 # Sources
 # --------------------------------------------------------------------------- #
 
-QueryCallback = Callable[[DnsQuery], None]
+QueryCallback = Callable[[DnsQuery], Any]
 
 
 class SourceUnavailable(RuntimeError):
@@ -513,7 +513,7 @@ class PacketDnsSource:
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.stats = Counter()
+        self.stats: Counter[str] = Counter()
 
     def start(self) -> None:
         if not sys.platform.startswith("linux") or not hasattr(socket, "AF_PACKET"):
@@ -624,7 +624,7 @@ class SysmonDnsSource:
         self._last = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.stats = Counter()
+        self.stats: Counter[str] = Counter()
 
     def _query(self, xpath: str, *, reverse: bool, count: int) -> str:
         return self._run(

@@ -33,6 +33,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -99,17 +100,22 @@ class _ScanHandler(FileSystemEventHandler):
             return True
         return False
 
+    def _path_str(self, src: str | bytes) -> str:
+        return os.fsdecode(src)
+
     def on_created(self, event: FileSystemEvent) -> None:
-        if event.is_directory or self._should_skip(event.src_path):
+        src = self._path_str(event.src_path)
+        if event.is_directory or self._should_skip(src):
             return
         with self._lock:
-            self._queue.append((time.time(), event.src_path, "created"))
+            self._queue.append((time.time(), src, "created"))
 
     def on_modified(self, event: FileSystemEvent) -> None:
-        if event.is_directory or self._should_skip(event.src_path):
+        src = self._path_str(event.src_path)
+        if event.is_directory or self._should_skip(src):
             return
         with self._lock:
-            self._queue.append((time.time(), event.src_path, "modified"))
+            self._queue.append((time.time(), src, "modified"))
 
 
 @dataclass
@@ -230,7 +236,7 @@ class FileSystemWatcher:
         self._queue: deque[tuple[float, str, str]] = deque()
         self._queue_lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._observer: Observer | None = None
+        self._observer: Any = None
         self._scanner_thread: threading.Thread | None = None
         self._handler = _ScanHandler(
             self._queue, self._queue_lock, excluded_dirs, excluded_suffixes
