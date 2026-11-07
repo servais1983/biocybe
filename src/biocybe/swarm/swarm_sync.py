@@ -140,7 +140,7 @@ class SwarmSync:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info("Swarm : bundle exporté (%d indicateurs) -> %s", bundle["count"], p)
-        return bundle["count"]
+        return int(bundle["count"])
 
     # ------------------------------------------------------------------
     # Import

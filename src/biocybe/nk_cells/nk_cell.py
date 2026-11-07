@@ -269,7 +269,7 @@ class NKCell:
             return decision
 
         # Downgrade kill → action par défaut si kill non autorisé
-        action = requested
+        action: NKAction = requested
         if action == NKAction.KILL and not self.config.allow_kill:
             action = (
                 self.config.default_action

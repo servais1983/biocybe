@@ -120,7 +120,7 @@ def update_threatfox_iocs(
     days: int = 1,
     auth_key: str | None = None,
     client: ThreatFoxClient | None = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Met à jour `db/signatures/threatfox/recent.json` depuis ThreatFox.
 
     Stocke aussi des index par type d'IOC pour lookup rapide :

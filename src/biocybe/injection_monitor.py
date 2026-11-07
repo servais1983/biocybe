@@ -183,7 +183,7 @@ class InjectionScanner:
         self.jit_allowlist = frozenset(x.lower() for x in jit_allowlist)
         self.debuggers = frozenset(x.lower() for x in debuggers)
         self.memfd_allowlist = tuple(memfd_allowlist)
-        self.stats = Counter()
+        self.stats: Counter[str] = Counter()
 
     def _read(self, pid: int, name: str, mode: str = "r") -> Any:
         p = self.proc_root / str(pid) / name
@@ -479,7 +479,7 @@ class InjectionMonitor:
         self._thread: threading.Thread | None = None
         self._sysmon: SysmonInjectionSource | None = None
         self._sysmon_runner = sysmon_runner
-        self.active_source = None
+        self.active_source: str | None = None
 
     def _key(self, f: InjectionFinding) -> tuple:
         start = ""

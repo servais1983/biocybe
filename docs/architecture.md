@@ -2,6 +2,15 @@
 
 Ce document décrit l'architecture modulaire de Biocybe, inspirée du système immunitaire biologique.
 
+> Les schémas de classes plus bas sont **conceptuels** (noms historiques
+> `BaseMacrophage`, `BaseBCell`, …). Le code réel vit dans
+> `src/biocybe/` : `biocybe_core.core.BiologicalCell`, `macrophages.macrophage.MacrophageCell`,
+> `lymphocytes_b.b_cell.BCell`, `lymphocytes_t.t_cell.TCell`,
+> `nk_cells.nk_cell.NKCell`, `memory.immune_memory.ImmuneMemory`,
+> `inflammation.engine.InflammationEngine`. Le point d'entrée est
+> `biocybe` (`biocybe.cli:main`), pas un script `biocybe.py`.
+> Voir le README pour l'état livré.
+
 ## Vue d'ensemble
 
 Biocybe est structuré selon une architecture cellulaire où chaque "cellule" est un module spécialisé qui remplit une fonction spécifique dans le système de défense. Cette approche permet une grande flexibilité, extensibilité et robustesse.

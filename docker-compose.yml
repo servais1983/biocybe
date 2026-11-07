@@ -19,6 +19,12 @@ services:
     restart: unless-stopped
     # Le daemon est démarré sans sous-commande (= comportement par défaut).
     command: ["--config", "/home/biocybe/config/biocybe.yaml"]
+    environment:
+      BIOCYBE_CONFIG: /home/biocybe/config/biocybe.yaml
+      BIOCYBE_LOG_FILE: /home/biocybe/logs/biocybe.log
+      BIOCYBE_LOG_FORMAT: json
+      BIOCYBE_LOG_LEVEL: INFO
+      BIOCYBE_HEARTBEAT_FILE: /home/biocybe/logs/heartbeat
     volumes:
       - biocybe-quarantine:/home/biocybe/quarantine
       - biocybe-db:/home/biocybe/db
@@ -44,6 +50,50 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    healthcheck:
+      test: ["CMD", "python", "/opt/biocybe/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  # API REST (extra web). Ne démarre pas avec `docker compose up` :
+  #   BIOCYBE_API_TOKEN=... docker compose --profile api up -d api
+  api:
+    profiles: ["api"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BIOCYBE_EXTRAS: web
+    image: biocybe:web
+    container_name: biocybe-api
+    restart: unless-stopped
+    command: ["api", "serve", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      BIOCYBE_API_TOKEN: ${BIOCYBE_API_TOKEN:-}
+      BIOCYBE_LOG_FORMAT: json
+      BIOCYBE_LOG_LEVEL: INFO
+      BIOCYBE_HEALTHCHECK_URL: http://127.0.0.1:8080/healthz
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - biocybe-quarantine:/home/biocybe/quarantine
+      - biocybe-db:/home/biocybe/db
+      - biocybe-logs:/home/biocybe/logs
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "/opt/biocybe/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   # Service one-shot pour scans ad-hoc.
   scanner:
