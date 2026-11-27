@@ -54,8 +54,8 @@ class DaemonMetricsServer:
         self.memory_stats_fn = memory_stats_fn
         self.inflammation_fn = inflammation_fn
         self.started_at = started_at or time.time()
-        self._httpd = None
-        self._registry = None
+        self._httpd: Any = None
+        self._registry: Any = None
 
     def build_collector(self):
         """Construit le collecteur custom (lecture live au scrape)."""

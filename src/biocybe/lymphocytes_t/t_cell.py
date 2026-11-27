@@ -64,6 +64,25 @@ METRIC_FEATURES: tuple[str, ...] = (
 
 MODEL_VERSION = 1  # bump si METRIC_FEATURES change
 
+# Plancher d'écart-type pour le score z. Une baseline courte est presque
+# plate : sans plancher, un écart de 0,2 point de mémoire devient « 5 sigma ».
+# L'unité est celle de la feature (points de %, bytes/s, comptes).
+_Z_STD_FLOOR: dict[str, float] = {
+    "cpu_percent": 15.0,
+    "cpu_load_1m": 0.5,
+    "memory_percent": 5.0,
+    "swap_percent": 5.0,
+    "disk_io_read_bytes_rate": 1_000_000.0,
+    "disk_io_write_bytes_rate": 1_000_000.0,
+    "net_bytes_sent_rate": 100_000.0,
+    "net_bytes_recv_rate": 100_000.0,
+    "net_connections_count": 20.0,
+    "process_count": 25.0,
+    "process_count_running": 5.0,
+    "process_count_zombie": 1.0,
+    "thread_count_total": 50.0,
+}
+
 
 class MLDepsMissing(RuntimeError):
     """sklearn/numpy/joblib non installés (extra `[ml]`)."""
@@ -306,6 +325,8 @@ class AnomalyExplanation:
     is_anomaly: bool
     top_features: list[dict[str, Any]]  # [{name, value, z_score, baseline_mean}]
     raw_sample: dict[str, float]
+    # none | forest | zscore | both — pourquoi is_anomaly est vrai.
+    trigger: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -313,6 +334,7 @@ class AnomalyExplanation:
             "anomaly_score": self.anomaly_score,
             "score_threshold": self.score_threshold,
             "is_anomaly": self.is_anomaly,
+            "trigger": self.trigger,
             "top_features": self.top_features,
             "raw_sample": self.raw_sample,
         }
@@ -320,9 +342,16 @@ class AnomalyExplanation:
     def human_summary(self) -> str:
         if not self.is_anomaly:
             return f"Comportement normal (score={self.anomaly_score:.3f})"
-        parts = [
-            f"Anomalie comportementale (score={self.anomaly_score:.3f}<{self.score_threshold:.3f})"
-        ]
+        if self.trigger == "zscore":
+            headline = (
+                f"Anomalie comportementale (écart >= seuil z, score forêt={self.anomaly_score:.3f})"
+            )
+        else:
+            headline = (
+                f"Anomalie comportementale (score={self.anomaly_score:.3f}"
+                f"<{self.score_threshold:.3f}, trigger={self.trigger})"
+            )
+        parts = [headline]
         for feat in self.top_features[:3]:
             sign = "haute" if feat["z_score"] > 0 else "basse"
             parts.append(
@@ -356,6 +385,9 @@ class TCell(BiologicalCell):
         self.training_samples = int(cfg.get("training_samples", 600))
         self.contamination = float(cfg.get("contamination", 0.01))
         self.score_threshold = float(cfg.get("score_threshold", 0.0))
+        # Un écart >= N sigma sur une feature suffit, même si IsolationForest
+        # dilue le signal dans les 13 dimensions (baseline courte / hôte bruité).
+        self.z_alert_threshold = float(cfg.get("z_alert_threshold", 4.0))
         self.cooldown_seconds = float(cfg.get("cooldown_seconds", 60.0))
 
         self.collector = MetricsCollector()
@@ -398,14 +430,26 @@ class TCell(BiologicalCell):
 
     # ---- API publique ----------------------------------------------------
 
+    def observe(self, sample: dict[str, float]) -> None:
+        """Enregistre un échantillon (psutil ou rejeu synthétique bénin).
+
+        Utilisé par l'entraînement et par les tests / le labo : le vecteur
+        doit contenir exactement ``METRIC_FEATURES``. Aucune action sur
+        l'hôte.
+        """
+        missing = [name for name in METRIC_FEATURES if name not in sample]
+        if missing:
+            raise KeyError(f"échantillon incomplet, features manquantes : {missing}")
+        with self._buffer_lock:
+            if self.state == "learning" and len(self._training_buffer) < self.training_samples:
+                vec = [float(sample[name]) for name in METRIC_FEATURES]
+                self._training_buffer.append(vec)
+                self._stats_extra["samples_collected"] = len(self._training_buffer)
+
     def collect_one(self) -> dict[str, float]:
         """Collecte un échantillon et le stocke dans le buffer si en learning."""
         sample = self.collector.sample()
-        with self._buffer_lock:
-            if self.state == "learning" and len(self._training_buffer) < self.training_samples:
-                vec = [sample[name] for name in METRIC_FEATURES]
-                self._training_buffer.append(vec)
-                self._stats_extra["samples_collected"] = len(self._training_buffer)
+        self.observe(sample)
         return sample
 
     def train_from_buffer(self) -> TCellModel:
@@ -477,33 +521,46 @@ class TCell(BiologicalCell):
         scaled = self.tcell_model.scaler.transform(vec)
         # decision_function : >0 = normal, <0 = anomalie. Plus c'est négatif, plus c'est anormal.
         score = float(self.tcell_model.model.decision_function(scaled)[0])
-        is_anomaly = score < self.score_threshold
+        forest_hit = score < self.score_threshold
 
         # Explication : top features qui s'écartent le plus de la baseline.
         means = self.tcell_model.feature_means
         stds = self.tcell_model.feature_stds
-        z_scores = []
+        z_scores: list[dict[str, Any]] = []
+        max_abs_z = 0.0
         for i, name in enumerate(METRIC_FEATURES):
-            z = (sample[name] - means[i]) / stds[i]
+            scale = max(float(stds[i]), _Z_STD_FLOOR.get(name, 1.0))
+            z = float((sample[name] - means[i]) / scale)
+            max_abs_z = max(max_abs_z, abs(z))
             z_scores.append(
                 {
                     "name": name,
-                    "value": sample[name],
+                    "value": float(sample[name]),
                     "z_score": z,
-                    "baseline_mean": means[i],
+                    "baseline_mean": float(means[i]),
                     "abs_z": abs(z),
                 }
             )
-        z_scores.sort(key=lambda x: x["abs_z"], reverse=True)
+        z_scores.sort(key=lambda item: float(item["abs_z"]), reverse=True)
         top = [{k: v for k, v in fz.items() if k != "abs_z"} for fz in z_scores[:5]]
+        z_hit = max_abs_z >= self.z_alert_threshold
+        if forest_hit and z_hit:
+            trigger = "both"
+        elif forest_hit:
+            trigger = "forest"
+        elif z_hit:
+            trigger = "zscore"
+        else:
+            trigger = "none"
 
         return AnomalyExplanation(
             timestamp=datetime.now().isoformat(),
             anomaly_score=score,
             score_threshold=self.score_threshold,
-            is_anomaly=is_anomaly,
+            is_anomaly=forest_hit or z_hit,
             top_features=top,
             raw_sample=sample,
+            trigger=trigger,
         )
 
     def get_status(self) -> dict:

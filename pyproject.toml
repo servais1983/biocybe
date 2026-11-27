@@ -99,6 +99,15 @@ soc = [
 all = [
     "biocybe[soc,dev]",
 ]
+# Héritage non intégré au pipeline. Importé seulement si on charge le module.
+xai = [
+    "matplotlib>=3.7",
+    "captum>=0.6",
+]
+legacy = [
+    "networkx>=3.0",
+    "numpy>=1.24",
+]
 
 [project.urls]
 Homepage = "https://github.com/servais1983/biocybe"
@@ -127,6 +136,7 @@ addopts = [
     "--strict-markers",
     "--strict-config",
 ]
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: tests qui prennent >1s",
     "integration: tests d'intégration (réseau, filesystem, etc.)",

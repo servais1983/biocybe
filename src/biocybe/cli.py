@@ -20,22 +20,23 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from . import lymphocytes_b, macrophages
 from .biocybe_core import BioCybeCore
+from .biocybe_core.core import _default_log_handlers
 
 # Force UTF-8 sur stdout/stderr (Windows utilise cp1252 par défaut).
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if callable(_reconfigure):
+        _reconfigure(encoding="utf-8", errors="replace")
 
 # Handlers partagés avec biocybe_core : fichier biocybe.log en UTF-8 si
 # inscriptible, sinon stderr seul (conteneur non-root / FS en lecture seule).
-# basicConfig est un no-op si biocybe_core a déjà configuré le logger racine.
-from .biocybe_core.core import _default_log_handlers
-
+# configure_logging est un no-op si biocybe_core a déjà configuré le logger racine.
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=logging.INFO,
@@ -65,9 +66,12 @@ Le système immunitaire numérique libre, modulaire et explicable.
 def _load_config(config_path: str) -> dict | None:
     try:
         with open(config_path, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+            loaded = yaml.safe_load(f)
+        if not isinstance(loaded, dict):
+            logger.error("Configuration invalide dans %s : un mapping YAML est requis", config_path)
+            return None
         logger.info("Configuration chargée depuis %s", config_path)
-        return config
+        return loaded
     except Exception as exc:
         logger.error("Erreur lors du chargement de la configuration : %s", exc)
         return None
@@ -93,6 +97,7 @@ def _handle_signal(signum, _frame) -> None:
 
 
 def _create_required_directories() -> None:
+    """Crée l'arborescence locale. Un FS read-only ne doit pas tuer le daemon."""
     for d in (
         "db",
         "db/signatures",
@@ -108,16 +113,20 @@ def _create_required_directories() -> None:
         "rules",
         "rules/firewall",
         "rules/yara",
+        "status",
         "templates",
         "templates/recovery",
     ):
-        os.makedirs(d, exist_ok=True)
-    logger.info("Structure de répertoires créée")
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError as exc:
+            logger.warning("Répertoire %s non créé (%s)", d, exc)
+    logger.info("Structure de répertoires vérifiée")
 
 
-def _init_core(config: dict) -> BioCybeCore | None:
+def _init_core(config: dict, config_path: str = DEFAULT_CONFIG_PATH) -> BioCybeCore | None:
     try:
-        core = BioCybeCore()
+        core = BioCybeCore(config_path)
         if config.get("cells", {}).get("autoload", True):
             enabled = config.get("cells", {}).get("enabled_types", [])
             if "macrophage" in enabled:
@@ -269,7 +278,8 @@ def cmd_intel_update(args: argparse.Namespace) -> int:
                     db_path=args.db_path,
                     days=args.threatfox_days,
                 )
-                bt = stats.get("by_type_counts", {})
+                raw_bt: Any = stats.get("by_type_counts", {})
+                bt: dict[str, Any] = raw_bt if isinstance(raw_bt, dict) else {}
                 summary = (
                     f"ThreatFox : {stats['fetched']} IOCs "
                     f"({bt.get('hash', 0)} hashes, {bt.get('url', 0)} URLs, "
@@ -419,6 +429,9 @@ def cmd_tcell_train(args: argparse.Namespace) -> int:
         return 5
 
     info = cell.tcell_model
+    if info is None:
+        print("Entraînement terminé sans modèle en mémoire.", file=sys.stderr)
+        return 5
     print(
         f"\nModèle entraîné sur {info.n_samples} échantillons, "
         f"persisté dans {args.model_dir}/model.joblib"
@@ -1141,13 +1154,15 @@ def _build_daemon_metrics_server(
         logger.warning("Métriques daemon indisponibles : %s", exc)
         return None
 
+    nk_cell_live = getattr(netmon_service, "nk_cell", None) if netmon_service is not None else None
+
+    def _nk_action_counts() -> dict[str, int]:
+        counts = getattr(nk_cell_live, "action_counts", None)
+        return counts if isinstance(counts, dict) else {}
+
     server = DaemonMetricsServer(
         watcher_stats_fn=(lambda: watcher.stats.to_dict()) if watcher is not None else None,
-        nk_counts_fn=(
-            (lambda: getattr(netmon_service, "nk_cell", None).action_counts)
-            if netmon_service is not None and getattr(netmon_service, "nk_cell", None) is not None
-            else None
-        ),
+        nk_counts_fn=_nk_action_counts if nk_cell_live is not None else None,
         netmon_iocs_fn=((lambda: netmon_service.ioc_total) if netmon_service is not None else None),
         memory_stats_fn=((lambda: immune_memory.stats()) if immune_memory is not None else None),
         inflammation_fn=((lambda: inflammation.snapshot()) if inflammation is not None else None),
@@ -1965,7 +1980,7 @@ def cmd_nk_status(args: argparse.Namespace) -> int:
             allow_kill=nk_cfg.get("allow_kill", False),
         )
     )
-    info = {
+    info: dict[str, Any] = {
         "enabled": nk.config.enabled,
         "dry_run": nk.config.dry_run,
         "min_confidence": nk.config.min_confidence,
@@ -2661,7 +2676,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         sync_yara_rules()  # règles à jour avant le watcher
         rt_cell = BCell("realtime_watcher")
         watcher = FileSystemWatcher(
-            watch_dirs,
+            [str(path) for path in watch_dirs],
             cell=rt_cell,
             quarantine_on_match=args.watch_quarantine,
             dry_run=args.watch_dry_run,
@@ -2732,7 +2747,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     # La protection fichiers/réseau est DÉJÀ active. On charge maintenant
     # les cellules d'analyse comportementale ; leur init lente n'impacte
     # plus la disponibilité de la protection.
-    _core = _init_core(config)
+    _core = _init_core(config, args.config)
     if not _core:
         return 1
     if inflammation is not None:
@@ -2810,8 +2825,11 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         last_save = time.time()
         last_netmon_reload = time.time()
         last_inflammation_tick = time.time()
+        from .health import write_heartbeat
+
         while _running:
             now = time.time()
+            write_heartbeat()
             if inflammation is not None and now - last_inflammation_tick >= 10:
                 try:
                     inflammation.tick()  # décroissance + résolution des incidents
@@ -2876,8 +2894,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-c",
         "--config",
-        default=DEFAULT_CONFIG_PATH,
-        help="Chemin vers le fichier de configuration",
+        default=os.environ.get("BIOCYBE_CONFIG", DEFAULT_CONFIG_PATH),
+        help="Chemin vers le fichier de configuration (ou env BIOCYBE_CONFIG)",
     )
     parser.add_argument("--debug", action="store_true", help="Active le mode debug")
     # Flags du daemon par défaut (utilisables sans sous-commande).

@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -31,7 +31,7 @@ class DataProcessingActivity:
     responsible_person: str
     cross_border_transfer: bool = False
     transfer_safeguards: str | None = None
-    processors: list[str] = None
+    processors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Convertit l'activité en dictionnaire."""
@@ -62,10 +62,10 @@ class EthicalFramework:
         Args:
             config_path: Chemin vers le fichier de configuration du cadre éthique (JSON)
         """
-        self.processing_activities = []
-        self.consent_log = {}
-        self.data_subject_requests = {}
-        self.config = {
+        self.processing_activities: list[dict[str, Any]] = []
+        self.consent_log: dict[str, Any] = {}
+        self.data_subject_requests: dict[str, Any] = {}
+        self.config: dict[str, Any] = {
             "privacy": {
                 "data_minimization": True,
                 "local_processing": True,
@@ -162,17 +162,17 @@ class EthicalFramework:
 
         anonymized_data = data.copy()
 
-        for field in sensitive_fields:
-            if field in anonymized_data:
+        for sensitive in sensitive_fields:
+            if sensitive in anonymized_data:
                 # Remplacer par un hash ou une valeur anonymisée selon le type
-                if isinstance(anonymized_data[field], str):
+                if isinstance(anonymized_data[sensitive], str):
                     # Hash simple pour les chaînes
-                    anonymized_data[field] = hashlib.sha256(
-                        anonymized_data[field].encode()
+                    anonymized_data[sensitive] = hashlib.sha256(
+                        anonymized_data[sensitive].encode()
                     ).hexdigest()[:8]
-                elif isinstance(anonymized_data[field], (int, float)):
+                elif isinstance(anonymized_data[sensitive], (int, float)):
                     # Bruit pour les valeurs numériques
-                    anonymized_data[field] = 0  # Valeur neutre pour les démonstrations
+                    anonymized_data[sensitive] = 0  # Valeur neutre pour les démonstrations
 
         logger.info(f"Data anonymized for {len(sensitive_fields)} sensitive fields")
         return anonymized_data
@@ -211,7 +211,7 @@ class EthicalFramework:
             bool: True si le consentement a été accordé, False sinon
         """
         if user_id in self.consent_log and consent_type in self.consent_log[user_id]:
-            return self.consent_log[user_id][consent_type]["granted"]
+            return bool(self.consent_log[user_id][consent_type]["granted"])
 
         # Par défaut, considérer qu'il n'y a pas de consentement
         return False
@@ -344,7 +344,7 @@ class EthicalFramework:
                     f"{explainability_metrics['global_score']:.2f} < {required_score:.2f}"
                 )
 
-            return meets_threshold
+            return bool(meets_threshold)
 
         # Si pas de score global, vérifier les scores spécifiques
         if not explainability_metrics:
@@ -361,7 +361,7 @@ class EthicalFramework:
                 f"{avg_score:.2f} < {required_score:.2f}"
             )
 
-        return meets_threshold
+        return bool(meets_threshold)
 
     def export_processing_register(self, output_path: str) -> bool:
         """

@@ -91,6 +91,29 @@ def _save_manifest(manifest_path: Path, entries: list[dict[str, Any]]) -> None:
         json.dump(entries, f, indent=2, ensure_ascii=False)
 
 
+def _quarantine_stored_path(qdir: Path, stored_filename: str) -> Path:
+    """Résout un nom de fichier de quarantaine et refuse toute traversée.
+
+    Le manifeste est un JSON modifiable. Un ``stored_filename`` du type
+    ``../secret`` ou un chemin absolu ne doit jamais sortir de ``qdir``.
+    """
+    name = str(stored_filename or "")
+    if not name or name != Path(name).name or name in {".", ".."}:
+        raise ValueError(f"Nom de fichier de quarantaine refusé : {stored_filename!r}")
+    root = qdir.resolve()
+    candidate = (root / name).resolve()
+    if candidate.parent != root:
+        raise ValueError(f"Chemin de quarantaine hors dossier : {stored_filename!r}")
+    return candidate
+
+
+def _safe_original_name(src: Path) -> str:
+    name = src.name.replace("\x00", "")
+    if not name or name in {".", ".."} or name != Path(name).name:
+        return "file"
+    return name
+
+
 def _sha256_of(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -151,8 +174,8 @@ def quarantine_file(
         # déchiffré que si on connaît le hash attendu).
         from .. import crypto as _crypto
 
-        stored_filename = f"{qid}__{src.name}.quarantine.enc"
-        dest = qdir / stored_filename
+        stored_filename = f"{qid}__{_safe_original_name(src)}.quarantine.enc"
+        dest = _quarantine_stored_path(qdir, stored_filename)
         _crypto.encrypt_file(
             src,
             dest,
@@ -162,8 +185,8 @@ def quarantine_file(
         # Supprimer le clair (le chiffré l'a remplacé via fichier séparé)
         src.unlink()
     else:
-        stored_filename = f"{qid}__{src.name}.quarantine"
-        dest = qdir / stored_filename
+        stored_filename = f"{qid}__{_safe_original_name(src)}.quarantine"
+        dest = _quarantine_stored_path(qdir, stored_filename)
         shutil.move(str(src), str(dest))
         # Retirer les permissions d'exécution (best effort, surtout Linux).
         try:
@@ -291,13 +314,14 @@ def restore_file(
         FileNotFoundError: fichier en quarantaine manquant sur disque.
         QuarantineIntegrityError: hash divergent et verify_hash=True.
         FileExistsError: destination occupée.
+        ValueError: ``stored_filename`` sort du dossier de quarantaine.
     """
     qdir = Path(quarantine_dir)
     entry = get_quarantine_entry(quarantine_id, qdir)
     if entry is None:
         raise KeyError(f"ID de quarantaine inconnu : {quarantine_id}")
 
-    src = qdir / entry["stored_filename"]
+    src = _quarantine_stored_path(qdir, str(entry.get("stored_filename") or ""))
     if not src.is_file():
         raise FileNotFoundError(
             f"Fichier en quarantaine manquant : {src}. "

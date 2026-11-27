@@ -8,10 +8,13 @@ continue du système, similaire aux macrophages du système immunitaire qui
 patrouillent constamment à la recherche de pathogènes.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import time
 from datetime import datetime
+from typing import Any
 
 import psutil
 
@@ -20,6 +23,38 @@ from ..biocybe_core import BiologicalCell, CellMessage
 
 # Configuration du logger
 logger = logging.getLogger("biocybe.macrophage")
+
+
+def suspicious_command_reason(cmdline: str) -> str | None:
+    """Retourne la raison si la ligne de commande matche une heuristique connue.
+
+    Correspondance par sous-chaîne sur des motifs déjà utilisés par le
+    macrophage. Ce n'est pas une preuve : le poids reste une alerte.
+    """
+    for pattern in (
+        "nc -e",
+        "bash -i >",
+        "sh -i",
+        'python -c "import os; os.system',
+        "wget -O- | sh",
+        "curl | sh",
+        "chmod 777",
+        "dd if=/dev/zero",
+        "rm -rf /",
+        ".decode('base64')",
+        "eval(",
+        "exec(",
+        "base64 -d",
+    ):
+        if pattern in cmdline:
+            return f"Commande suspecte contenant '{pattern}'"
+    return None
+
+
+def _increase_percent(baseline: float, current: float) -> float:
+    if baseline <= 0:
+        return 100.0 if current > baseline else 0.0
+    return ((current - baseline) / baseline) * 100
 
 
 class SystemMonitor:
@@ -87,23 +122,6 @@ class SystemMonitor:
         new_processes = []
         suspicious_processes = []
 
-        # Liste des commandes suspectes (regex-like patterns)
-        suspicious_commands = [
-            "nc -e",
-            "bash -i >",
-            "sh -i",
-            'python -c "import os; os.system',
-            "wget -O- | sh",
-            "curl | sh",
-            "chmod 777",
-            "dd if=/dev/zero",
-            "rm -rf /",
-            ".decode('base64')",
-            "eval(",
-            "exec(",
-            "base64 -d",
-        ]
-
         # Récupérer les informations sur les processus
         for pid in psutil.pids():
             try:
@@ -125,16 +143,10 @@ class SystemMonitor:
                     cmdline = " ".join(proc.cmdline())
                     proc_info["cmdline"] = cmdline
 
-                    # Vérifier si le processus est suspect
-                    is_suspicious = False
-                    for pattern in suspicious_commands:
-                        if pattern in cmdline:
-                            is_suspicious = True
-                            break
-
-                    if is_suspicious:
+                    reason = suspicious_command_reason(cmdline)
+                    if reason:
                         proc_info["suspicious"] = True
-                        proc_info["reason"] = f"Commande suspecte contenant '{pattern}'"
+                        proc_info["reason"] = reason
                         suspicious_processes.append(proc_info)
 
                 except (psutil.AccessDenied, psutil.ZombieProcess):
@@ -228,7 +240,7 @@ class SystemMonitor:
         Returns:
             Dict: Résultats de l'analyse des fichiers
         """
-        file_changes = {
+        file_changes: dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "scanned_directories": directories,
             "new_files": [],
@@ -299,42 +311,10 @@ class SystemMonitor:
             logger.warning("Aucune baseline établie, impossible de détecter les anomalies")
             return []
 
-        anomalies = []
-        current_metrics = self.collect_system_metrics()
-
-        # Vérifier l'utilisation CPU anormale (si augmentation de plus de 30%)
-        baseline_cpu = self.baseline["system_metrics"]["cpu"]["percent"]
-        current_cpu = current_metrics["cpu"]["percent"]
-        if current_cpu > (baseline_cpu * 1.3) and current_cpu > 70:
-            anomalies.append(
-                {
-                    "type": "high_cpu_usage",
-                    "severity": "medium",
-                    "details": {
-                        "baseline": baseline_cpu,
-                        "current": current_cpu,
-                        "increase_percent": ((current_cpu - baseline_cpu) / baseline_cpu) * 100,
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        # Vérifier l'utilisation mémoire anormale
-        baseline_mem = self.baseline["system_metrics"]["memory"]["percent"]
-        current_mem = current_metrics["memory"]["percent"]
-        if current_mem > (baseline_mem * 1.3) and current_mem > 80:
-            anomalies.append(
-                {
-                    "type": "high_memory_usage",
-                    "severity": "medium",
-                    "details": {
-                        "baseline": baseline_mem,
-                        "current": current_mem,
-                        "increase_percent": ((current_mem - baseline_mem) / baseline_mem) * 100,
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
+        anomalies = self.anomalies_between(
+            self.baseline["system_metrics"],
+            self.collect_system_metrics(),
+        )
 
         # Vérifier les connexions réseau
         current_connections = self.scan_network_connections()
@@ -366,6 +346,50 @@ class SystemMonitor:
         self.anomalies = anomalies
         return anomalies
 
+    def anomalies_between(
+        self,
+        baseline_metrics: dict[str, Any],
+        current_metrics: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Compare deux instantanés de métriques, sans I/O.
+
+        Seuils historiques du macrophage : CPU > 70 % et +30 % vs baseline,
+        mémoire > 80 % et +30 %. Une baseline à 0 ne divise pas par zéro.
+        """
+        anomalies: list[dict[str, Any]] = []
+        baseline_cpu = float(baseline_metrics["cpu"]["percent"])
+        current_cpu = float(current_metrics["cpu"]["percent"])
+        if current_cpu > (baseline_cpu * 1.3) and current_cpu > 70:
+            anomalies.append(
+                {
+                    "type": "high_cpu_usage",
+                    "severity": "medium",
+                    "details": {
+                        "baseline": baseline_cpu,
+                        "current": current_cpu,
+                        "increase_percent": _increase_percent(baseline_cpu, current_cpu),
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+
+        baseline_mem = float(baseline_metrics["memory"]["percent"])
+        current_mem = float(current_metrics["memory"]["percent"])
+        if current_mem > (baseline_mem * 1.3) and current_mem > 80:
+            anomalies.append(
+                {
+                    "type": "high_memory_usage",
+                    "severity": "medium",
+                    "details": {
+                        "baseline": baseline_mem,
+                        "current": current_mem,
+                        "increase_percent": _increase_percent(baseline_mem, current_mem),
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+        return anomalies
+
 
 class MacrophageCell(BiologicalCell):
     """
@@ -375,7 +399,7 @@ class MacrophageCell(BiologicalCell):
     et alerte les autres cellules en cas d'anomalie.
     """
 
-    def __init__(self, name: str, config: dict = None):
+    def __init__(self, name: str, config: dict | None = None):
         """
         Initialise une cellule Macrophage.
 
@@ -397,8 +421,8 @@ class MacrophageCell(BiologicalCell):
         )
 
         # État
-        self.last_scan_time = None
-        self.anomalies_found = []
+        self.last_scan_time: datetime | None = None
+        self.anomalies_found: list[dict[str, Any]] = []
 
         # Enregistrer les gestionnaires de messages
         self.register_message_handler("request_scan", self._handle_scan_request)
@@ -564,7 +588,7 @@ def create_cells(config: dict) -> list[BiologicalCell]:
     Returns:
         List[BiologicalCell]: Liste des cellules créées
     """
-    cells = []
+    cells: list[BiologicalCell] = []
 
     # Configuration des macrophages
     macrophage_config = config.get("cells", {}).get("macrophage", {})

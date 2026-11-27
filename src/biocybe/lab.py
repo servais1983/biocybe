@@ -147,7 +147,11 @@ def score(
         if inc_id not in explained
     ]
     detected = [r for r in results if r["result"] != "missed"]
-    latencies = sorted(r["latency_seconds"] for r in detected if r["latency_seconds"] is not None)
+    latencies = sorted(
+        float(latency)
+        for r in detected
+        if isinstance((latency := r["latency_seconds"]), (int, float))
+    )
     return {
         "executions": len(results),
         "detected": len(detected),

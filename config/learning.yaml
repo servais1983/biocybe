@@ -45,10 +45,12 @@ federated_learning:
 threat_intelligence:
   enabled: true
   knowledge_base:
-    type: "neo4j"  # neo4j, elasticsearch, sqlite
-    url: "bolt://localhost:7687"
-    username: "neo4j"
-    password: "biocybe"
+    type: "sqlite"  # neo4j, elasticsearch, sqlite — sqlite par défaut, sans secret
+    url: ""
+    username: ""
+    # Ne jamais committer un mot de passe. Si Neo4j est activé :
+    # password via l'environnement du process, pas dans ce fichier.
+    password: ""
   external_sources:
     mitre_attack:
       enabled: true

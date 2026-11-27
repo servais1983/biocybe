@@ -393,6 +393,10 @@ class InflammationEngine:
         self._closed: deque[Incident] = deque(maxlen=self.config.max_closed_incidents)
         self._entity_index: dict[str, str] = {}  # entité reliante -> incident ouvert
         self._callbacks: list[IncidentCallback] = []
+        # Renseignés par le daemon (apprentissage + chemin du journal).
+        self.feedback_store: Any = None
+        self.feedback_mtime: float | None = None
+        self.store_path: str | os.PathLike[str] | None = None
         self.stats = {
             "signals_received": 0,
             "signals_subthreshold": 0,
@@ -752,7 +756,7 @@ class InflammationEngine:
         if tissue is None:
             return 0.0
         dt = max(0.0, now - tissue.last_ts)
-        return tissue.level * 0.5 ** (dt / self.config.half_life_seconds)
+        return float(tissue.level * 0.5 ** (dt / self.config.half_life_seconds))
 
     def _classify(self, level: float) -> str:
         if level >= self.config.systemic_threshold:

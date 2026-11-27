@@ -6,6 +6,8 @@ Ce module est responsable de l'initialisation, coordination et communication
 entre les différents modules "cellulaires" du système.
 """
 
+from __future__ import annotations
+
 import importlib
 import json
 import logging
@@ -20,8 +22,9 @@ from typing import Any
 
 import yaml
 
+from ..logging_setup import configure_logging, default_log_handlers
 
-# Configuration du logger
+
 def _default_log_handlers() -> list[logging.Handler]:
     """stderr + fichier `biocybe.log` (ou $BIOCYBE_LOG_FILE) si inscriptible.
 
@@ -29,24 +32,14 @@ def _default_log_handlers() -> list[logging.Handler]:
     inscriptible) ou en K8s readOnlyRootFilesystem, un FileHandler strict
     faisait planter jusqu'à `biocybe --help`. On se replie sur stderr seul
     (que collectent docker/k8s) plutôt que de crasher.
+
+    ``BIOCYBE_LOG_FORMAT=json`` active une ligne JSON par événement.
     """
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-    log_file = os.environ.get("BIOCYBE_LOG_FILE", "biocybe.log")
-    if log_file:
-        try:
-            # encoding="utf-8" explicite : sinon cp1252 sur Windows casse
-            # les accents et rend les logs non-parsables pour les SIEM.
-            handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
-        except OSError as exc:
-            sys.stderr.write(f"biocybe: log fichier désactivé ({log_file}: {exc})\n")
-    return handlers
+    return default_log_handlers()
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=_default_log_handlers(),
-)
+if not logging.getLogger().handlers:
+    configure_logging()
 logger = logging.getLogger("biocybe.core")
 
 
@@ -63,7 +56,7 @@ class CellMessage:
         target: str = "broadcast",
         payload: Any = None,
         priority: int = 1,
-        timestamp: datetime = None,
+        timestamp: datetime | None = None,
     ):
         """
         Initialise un nouveau message cellulaire.
@@ -89,7 +82,7 @@ class CellMessage:
             f"Message[{self.msg_type}] de {self.source} → {self.target} (priorité: {self.priority})"
         )
 
-    def __lt__(self, other: "CellMessage") -> bool:
+    def __lt__(self, other: CellMessage) -> bool:
         """Ordonne par timestamp pour `queue.PriorityQueue`.
 
         PriorityQueue heappush/pop compare les éléments du tuple
@@ -122,7 +115,7 @@ class BiologicalCell:
     Définit l'interface commune et les fonctionnalités de base.
     """
 
-    def __init__(self, name: str, cell_type: str, config: dict = None):
+    def __init__(self, name: str, cell_type: str, config: dict | None = None):
         """
         Initialise une cellule du système immunitaire numérique.
 
@@ -137,8 +130,9 @@ class BiologicalCell:
         self.logger = logging.getLogger(f"biocybe.{cell_type}.{name}")
         self.status = "initialized"
         self.active = False
-        self.message_queue = queue.PriorityQueue()
-        self.message_handlers = {}
+        self.message_queue: queue.PriorityQueue[tuple[int, CellMessage]] = queue.PriorityQueue()
+        self.message_handlers: dict[str, Callable[..., Any]] = {}
+        self._bus_send: Callable[..., bool] | None = None
         self._stop_event = threading.Event()
         # Intervalle entre 2 itérations du worker thread (en secondes).
         # Défaut 1.0s = CPU idle négligeable. Une sous-classe qui doit
@@ -152,8 +146,8 @@ class BiologicalCell:
         # sur Windows (mesuré via scripts/validate_daemon.py).
         self.tick_interval = float(self.config.get("tick_interval", 1.0))
 
-        # Métriques et statistiques
-        self.stats = {
+        # Métriques et statistiques (valeurs hétérogènes : compteurs et datetime).
+        self.stats: dict[str, Any] = {
             "messages_received": 0,
             "messages_sent": 0,
             "actions_performed": 0,
@@ -217,6 +211,8 @@ class BiologicalCell:
         Returns:
             bool: True si le message a été envoyé, False sinon
         """
+        if self._bus_send is not None:
+            return self._bus_send(msg_type, target, payload, priority)
         self.logger.warning("Méthode send_message non implémentée (cellule non connectée au noyau)")
         return False
 
@@ -298,14 +294,14 @@ class BioCybeCore:
         """
         self.logger = logging.getLogger("biocybe.core")
         self.config = self._load_config(config_path)
-        self.cells = {}  # name -> cell instance
-        self.cell_types = {}  # type -> [cells of that type]
-        self.message_bus = queue.PriorityQueue()
+        self.cells: dict[str, BiologicalCell] = {}
+        self.cell_types: dict[str, list[str]] = {}
+        self.message_bus: queue.PriorityQueue[tuple[int, CellMessage]] = queue.PriorityQueue()
         self.active = False
         self._stop_event = threading.Event()
 
         # Statistiques et métriques
-        self.stats = {
+        self.stats: dict[str, Any] = {
             "start_time": datetime.now(),
             "messages_processed": 0,
             "cells_loaded": 0,
@@ -326,9 +322,11 @@ class BioCybeCore:
         """
         try:
             with open(config_path) as f:
-                config = yaml.safe_load(f)
+                loaded = yaml.safe_load(f)
+                if not isinstance(loaded, dict):
+                    raise ValueError("la configuration YAML doit être un mapping")
                 self.logger.info(f"Configuration chargée depuis {config_path}")
-                return config
+                return loaded
         except Exception as e:
             self.logger.warning(f"Erreur lors du chargement de la configuration: {e}")
             self.logger.info("Utilisation de la configuration par défaut")
@@ -378,8 +376,8 @@ class BioCybeCore:
             cell.stats["last_activity"] = datetime.now()
             return True
 
-        # Remplacer la méthode de la cellule
-        cell.send_message = send_message_impl
+        # Branche la cellule sur le bus sans remplacer la méthode (typable).
+        cell._bus_send = send_message_impl
 
         # Enregistrer la cellule
         self.cells[cell.name] = cell
@@ -553,10 +551,14 @@ class BioCybeCore:
         Utile pour le monitoring et le débogage.
         """
         # État du noyau
-        status = {
+        started = self.stats.get("start_time")
+        uptime = (
+            (datetime.now() - started).total_seconds() if isinstance(started, datetime) else 0.0
+        )
+        status: dict[str, Any] = {
             "core": {
                 "active": self.active,
-                "uptime": (datetime.now() - self.stats["start_time"]).total_seconds(),
+                "uptime": uptime,
                 "cells_count": len(self.cells),
                 "messages_processed": self.stats["messages_processed"],
                 "last_alert": self.stats["last_alert"],

@@ -315,6 +315,8 @@ class NetworkMonitorService:
             on_match=on_match,
         )
         self._feed_fingerprint = self._compute_feed_fingerprint()
+        # Renseigné par le daemon quand la réponse NK est branchée sur netmon.
+        self.nk_cell: Any = None
 
     def _compute_feed_fingerprint(self) -> str:
         """Hash des `last_update.txt` de tous les feeds connus.

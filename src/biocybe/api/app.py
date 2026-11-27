@@ -173,7 +173,7 @@ class _Metrics:
                 "Installer avec : pip install biocybe[web]"
             )
             self.enabled = False
-            self.registry = None
+            self.registry = None  # type: ignore[assignment]
 
 
 # --------------------------------------------------------------------- #
@@ -407,7 +407,7 @@ def _register_routes(app: Flask) -> None:
             for cp in cache_paths:
                 if cp.exists():
                     return True, f"cache .yarc found at {cp}"
-            sources = []
+            sources: list[Path] = []
             for d in (
                 Path("rules/yara"),
                 Path("/home/biocybe/rules/yara"),

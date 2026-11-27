@@ -43,7 +43,7 @@ from .process_monitor import ProcessEvent
 
 logger = logging.getLogger("biocybe.procmon.source")
 
-EventCallback = Callable[[ProcessEvent], None]
+EventCallback = Callable[[ProcessEvent], Any]
 
 
 class SourceUnavailable(RuntimeError):

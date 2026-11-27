@@ -106,14 +106,14 @@ class FeedAgeReport:
         candidates = [f for f in self.feeds if f.age_seconds is not None]
         if not candidates:
             return None
-        return min(candidates, key=lambda f: f.age_seconds)
+        return min(candidates, key=lambda f: f.age_seconds if f.age_seconds is not None else 0.0)
 
     @property
     def oldest(self) -> FeedAge | None:
         candidates = [f for f in self.feeds if f.age_seconds is not None]
         if not candidates:
             return None
-        return max(candidates, key=lambda f: f.age_seconds)
+        return max(candidates, key=lambda f: f.age_seconds if f.age_seconds is not None else 0.0)
 
     def to_dict(self) -> dict[str, Any]:
         return {

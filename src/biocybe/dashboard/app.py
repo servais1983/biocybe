@@ -54,7 +54,8 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
     try:
         import dash_bootstrap_components as dbc
         import plotly.graph_objects as go
-        from dash import Dash, Input, Output, dash_table, dcc, html
+        from dash import Dash, Input, Output, dcc, html
+        from dash.dash_table.DataTable import DataTable
     except ImportError as exc:
         raise DashboardUnavailable(
             "Dépendances dashboard absentes. Installe : pip install biocybe[web]"
@@ -74,7 +75,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
         title="BioCybe SOC",
         external_stylesheets=[theme_url] if theme_url else [],
         assets_folder=str(Path(__file__).parent / "assets"),
-        update_title=None,
+        update_title=None,  # type: ignore[arg-type]  # None désactive le titre "Updating…"
     )
 
     # ------------------------------------------------------------------
@@ -111,7 +112,7 @@ def create_dashboard(config: DashboardConfig | None = None, *, refresh_seconds: 
         return fig
 
     def _table(rows: list[dict], columns: list[str]):
-        return dash_table.DataTable(
+        return DataTable(
             data=rows,
             columns=[{"name": c, "id": c} for c in columns],
             page_size=15,

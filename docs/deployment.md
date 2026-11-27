@@ -73,7 +73,18 @@ Source de vérité : `config/biocybe.yaml`. Sections clés :
 export BIOCYBE_API_TOKEN="$(openssl rand -hex 32)"      # auth API
 export BIOCYBE_QUARANTINE_KEY="$(biocybe crypto generate-key)"  # chiffrement quarantaine
 export ABUSECH_AUTH_KEY="..."                            # feeds threat intel
+export BIOCYBE_CONFIG=/etc/biocybe/biocybe.yaml          # défaut de --config
+export BIOCYBE_LOG_FORMAT=json                           # text | json
+export BIOCYBE_LOG_LEVEL=INFO
+export BIOCYBE_LOG_FILE=/var/log/biocybe/biocybe.log
+export BIOCYBE_HEARTBEAT_FILE=/var/lib/biocybe/heartbeat # santé du daemon
+export BIOCYBE_SWARM_KEY="..."                           # signature des bundles
 ```
+
+Les feeds MalwareBazaar et ThreatFox exigent `ABUSECH_AUTH_KEY`
+(compte abuse.ch). Sans cette clé, `intel update` pour ces sources
+s'arrête avec une erreur explicite : aucun appel n'est tenté avec un
+secret inventé. URLhaus (CSV public) n'a pas besoin de clé.
 
 ---
 
@@ -124,10 +135,20 @@ sudo systemctl enable --now biocybe-intel-refresh.timer
 `cap_drop: ALL`, `no-new-privileges`, limites CPU/mémoire) :
 
 ```bash
-docker compose up -d                              # daemon
+docker compose up -d                              # daemon (logs JSON + heartbeat)
 docker compose run --rm scanner scan /samples     # scan ad-hoc
 docker compose logs -f biocybe
+# API (image extra web, token obligatoire, rien n'est inventé) :
+BIOCYBE_API_TOKEN="$(openssl rand -hex 32)" docker compose --profile api up -d api
 ```
+
+Le daemon écrit `BIOCYBE_HEARTBEAT_FILE` (`/home/biocybe/logs/heartbeat`)
+et ses logs dans le volume `logs` (`BIOCYBE_LOG_FILE`, format
+`BIOCYBE_LOG_FORMAT=json`). Le HEALTHCHECK lit ce fichier : il ne
+contacte pas le réseau. L'API, elle, se vérifie via
+`BIOCYBE_HEALTHCHECK_URL=http://127.0.0.1:8080/healthz` à l'intérieur
+du conteneur. Un répertoire non inscriptible (root read-only) est
+ignoré au lieu de faire tomber le process.
 
 ### C. Kubernetes
 

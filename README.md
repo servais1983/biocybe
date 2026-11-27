@@ -68,7 +68,8 @@ biocybe --help
 ```
 
 Profils d'extras disponibles : `ml`, `web`, `fileanalysis`, `network`,
-`soc`, `all`. L'API REST et le dashboard requierent l'extra `web`.
+`soc`, `all`, plus `xai` et `legacy` pour des modules historiques non
+branches au daemon. L'API REST et le dashboard requierent l'extra `web`.
 
 ### Via Docker
 
@@ -339,6 +340,11 @@ production passe par le module `swarm`.
   SOC 2 / ISO 27001, cadre ethique documente.
 - **Secrets** : tokens et cles via variables d'environnement / secret
   manager, jamais en clair dans le code ou la configuration.
+  Variables utiles : `BIOCYBE_API_TOKEN`, `BIOCYBE_QUARANTINE_KEY`,
+  `BIOCYBE_SWARM_KEY`, `ABUSECH_AUTH_KEY` (MalwareBazaar et ThreatFox ;
+  sans cette cle le refresh de ces feeds s'arrete, URLhaus reste
+  public), `BIOCYBE_CONFIG`, `BIOCYBE_LOG_FORMAT` (`text` ou `json`),
+  `BIOCYBE_LOG_LEVEL`, `BIOCYBE_LOG_FILE`, `BIOCYBE_HEARTBEAT_FILE`.
 
 ---
 
@@ -348,6 +354,7 @@ production passe par le module `swarm`.
 python -m pytest tests/ -v          # suite complete
 ruff check src tests                # lint
 ruff format --check src tests       # format
+mypy                                 # types, perimetre de pyproject.toml (bloquant en CI)
 ```
 
 - Suite de tests unitaires et d'integration etendue (Linux / Windows / macOS

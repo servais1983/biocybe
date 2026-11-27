@@ -468,10 +468,10 @@ def _replay_case(case: Case, rules) -> dict[str, Any]:
             from .inflammation import from_injection_finding
             from .injection_monitor import InjectionScanner
 
-            for f in InjectionScanner().analyze_maps(
+            for finding in InjectionScanner().analyze_maps(
                 step["pid"], step["name"], step["exe"], step["maps"]
             ):
-                sigs.append(from_injection_finding(f))
+                sigs.append(from_injection_finding(finding))
         elif kind == "regen_drift":
             sigs.append(from_regen_event("drift", {"path": step["path"]}))
         for sig in sigs:

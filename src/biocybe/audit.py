@@ -160,7 +160,7 @@ class AuditLog:
         """
         with self._lock:
             new_seq = self._last_seq + 1
-            payload = {
+            payload: dict[str, Any] = {
                 "seq": new_seq,
                 "ts": datetime.now().isoformat(),
                 "actor": actor,

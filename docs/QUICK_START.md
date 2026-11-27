@@ -6,22 +6,21 @@ Ce document explique comment démarrer et utiliser le système BioCybe, votre sy
 
 ### Prérequis
 
-- Python 3.8 ou supérieur
-- Bibliothèques Python requises (voir `requirements.txt`)
-- Système d'exploitation Linux, macOS ou Windows (Linux recommandé)
-- Droits administrateur pour certaines fonctionnalités (optionnel)
+- Python 3.10 ou supérieur (testé jusqu'à 3.13)
+- Dépendances déclarées dans `pyproject.toml` (`requirements.txt` = cœur seulement)
+- Linux, macOS ou Windows (Linux recommandé pour le daemon)
+- Droits administrateur seulement pour la capture DNS, le proc connector ou le sinkhole
 
 ### Installation des dépendances
 
 ```bash
-# Créer un environnement virtuel (recommandé)
 python -m venv biocybe-env
 source biocybe-env/bin/activate  # Linux/macOS
-# ou
-biocybe-env\Scripts\activate  # Windows
+# ou biocybe-env\Scripts\activate  # Windows
 
-# Installer les dépendances
-pip install -r requirements.txt
+pip install -e ".[soc]"    # profil SOC
+# ou : pip install -e .    # cœur (scan + daemon)
+biocybe --help
 ```
 
 ## 🏃‍♂️ Démarrage
@@ -29,14 +28,16 @@ pip install -r requirements.txt
 ### Démarrage basique
 
 ```bash
-# Démarrer avec la configuration par défaut
-python biocybe.py
+# Daemon (cellules). Ctrl+C pour arrêter.
+biocybe --config config/biocybe.yaml
 
-# Mode debug avec plus de journalisation
-python biocybe.py --debug
+# Journal JSON (conteneur / SIEM) et fichier de santé
+export BIOCYBE_LOG_FORMAT=json
+export BIOCYBE_HEARTBEAT_FILE=logs/heartbeat
+biocybe --debug
 
-# Utiliser une configuration spécifique
-python biocybe.py -c chemin/vers/ma-config.yaml
+# Scan one-shot
+biocybe scan ./un_dossier --dry-run
 ```
 
 ### Démarrage en tant que service (Linux)
@@ -56,7 +57,7 @@ After=network.target
 User=biocybe
 Group=biocybe
 WorkingDirectory=/chemin/vers/biocybe
-ExecStart=/chemin/vers/biocybe-env/bin/python biocybe.py
+ExecStart=/chemin/vers/biocybe-env/bin/biocybe --config /etc/biocybe/biocybe.yaml
 Restart=on-failure
 RestartSec=5s
 
@@ -72,9 +73,17 @@ sudo systemctl start biocybe
 
 BioCybe inclut un tableau de bord web pour visualiser l'état du système, les menaces détectées et les actions effectuées.
 
-1. Assurez-vous que `dashboard_enabled: true` est défini dans votre configuration
-2. Accédez au tableau de bord via: http://localhost:8080 (ou le port configuré)
-3. Connectez-vous avec les identifiants définis dans votre configuration
+Le tableau de bord est une commande séparée (extra `web`), en lecture seule,
+sans compte intégré. Placez-le derrière un reverse-proxy authentifié.
+
+```bash
+pip install -e ".[web]"
+biocybe dashboard serve --host 127.0.0.1 --port 8050
+```
+
+L'API REST est distincte (`biocybe api serve`, port 8080 par défaut) et
+exige `BIOCYBE_API_TOKEN`. `GET /healthz` et `GET /readyz` ne demandent
+pas le token.
 
 ## 🔬 Comprendre les Modules Cellulaires
 

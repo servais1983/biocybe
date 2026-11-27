@@ -95,6 +95,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Le venv complet est copié — biocybe binary + tous les site-packages.
 COPY --from=builder --chown=biocybe:biocybe /opt/biocybe /opt/biocybe
+COPY --chown=biocybe:biocybe docker/healthcheck.py /opt/biocybe/healthcheck.py
 
 # Config + règles livrées (sous /home/biocybe pour cohérence avec WORKDIR
 # et permissions user). L'utilisateur peut override via -v en prod.
@@ -122,9 +123,11 @@ EXPOSE 8080
 WORKDIR /home/biocybe
 USER biocybe
 
-# Healthcheck : la CLI répond
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD biocybe --help > /dev/null 2>&1 || exit 1
+# Santé : heartbeat du daemon si BIOCYBE_HEARTBEAT_FILE est défini,
+# sinon URL locale (BIOCYBE_HEALTHCHECK_URL, ex. /healthz de l'API).
+# Sans l'une ou l'autre, le check réussit (commandes one-shot).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD ["python", "/opt/biocybe/healthcheck.py"]
 
 # tini en PID 1 = gestion propre des signaux pour le daemon
 ENTRYPOINT ["tini", "--", "biocybe"]

@@ -5,6 +5,25 @@ versioning [SemVer](https://semver.org/lang/fr/).
 
 ## [Unreleased]
 
+### Durcissement production
+
+- Journal JSON opt-in (`BIOCYBE_LOG_FORMAT=json`) via python-json-logger
+  et structlog, niveau et fichier par l'environnement.
+- Heartbeat du daemon (`BIOCYBE_HEARTBEAT_FILE`) et HEALTHCHECK Docker
+  qui ne sonde le réseau que si `BIOCYBE_HEALTHCHECK_URL` est défini.
+- Création de répertoires tolérante à un système de fichiers en lecture
+  seule (Compose `read_only`).
+- Quarantaine : un `stored_filename` qui sort du dossier est refusé.
+- Lymphocyte T : un écart de feature >= `z_alert_threshold` (défaut 4 σ)
+  ouvre une anomalie même si le score IsolationForest reste timide.
+  `observe()` accepte une télémétrie synthétique pour l'entraînement.
+- Macrophage : plus de division par zéro si la baseline CPU/mémoire est 0.
+- mypy est bloquant en CI sur le périmètre de `pyproject.toml`.
+- Mot de passe Neo4j retiré de `config/learning.yaml` (le module n'est
+  pas branché au daemon).
+- Profil Compose `api` (extra `web`) : le token vient de
+  `BIOCYBE_API_TOKEN`, jamais d'une valeur du dépôt.
+
 ### Capteur d'injection mémoire (T1055) — dernier angle mort en grande partie comblé
 
 `src/biocybe/injection_monitor.py` voit les **traces** que l'injection laisse

@@ -8,6 +8,8 @@ aux lymphocytes B du système immunitaire qui produisent des anticorps
 spécifiques pour identifier et neutraliser les pathogènes.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -18,6 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import Any
 
 import yara  # Nécessite l'installation de yara-python
 
@@ -42,7 +45,7 @@ class SignatureDatabase:
             db_path: Chemin vers le répertoire de la base de données
         """
         self.db_path = db_path
-        self.signatures = {}  # hash -> info
+        self.signatures: dict[str, Any] = {}
         self.rules = None  # Règles YARA compilées
         self.last_update = None
         self.update_lock = threading.Lock()
@@ -386,7 +389,7 @@ class SignatureDatabase:
             logger.error(f"Erreur lors de l'analyse YARA du fichier {file_path}: {e}")
             return False, [{"error": str(e)}]
 
-    def update_from_community(self, community_url: str = None):
+    def update_from_community(self, community_url: str | None = None):
         """
         Met à jour la base de données depuis des sources communautaires.
 
@@ -446,7 +449,7 @@ class BCell(BiologicalCell):
     pour détecter des menaces connues, similaire aux anticorps du système immunitaire.
     """
 
-    def __init__(self, name: str, config: dict = None):
+    def __init__(self, name: str, config: dict | None = None):
         """
         Initialise une cellule Lymphocyte B.
 
@@ -459,8 +462,8 @@ class BCell(BiologicalCell):
         # Configuration
         self.config = config or {}
         self.db_path = self.config.get("db_path", "db/signatures")
-        self.scan_queue = queue.PriorityQueue()
-        self.results_cache = {}  # file_path -> (timestamp, result)
+        self.scan_queue: queue.PriorityQueue[Any] = queue.PriorityQueue()
+        self.results_cache: dict[str, Any] = {}
         self.cache_expiry = timedelta(minutes=self.config.get("cache_expiry_minutes", 30))
 
         # Initialisation de la base de données
@@ -520,7 +523,9 @@ class BCell(BiologicalCell):
         except Exception as e:
             self.logger.error(f"Erreur dans le cycle de traitement: {e}")
 
-    def scan_file(self, file_path: str, callback: Callable = None, priority: int = 2):
+    def scan_file(
+        self, file_path: str, callback: Callable[..., Any] | None = None, priority: int = 2
+    ):
         """
         Ajoute un fichier à la file d'attente de scan.
 
@@ -798,7 +803,7 @@ def create_cells(config: dict) -> list[BiologicalCell]:
     Returns:
         List[BiologicalCell]: Liste des cellules créées
     """
-    cells = []
+    cells: list[BiologicalCell] = []
 
     # Configuration des lymphocytes B
     b_cell_config = config.get("cells", {}).get("b_cell", {})
